@@ -2,7 +2,9 @@ import { Component, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { PlanService } from '../services/plan.service';
+import { StorageService } from '../services/storage.service';
 import { TIPOS_DIA, MENUS, ALIMENTOS, ANTROPOMETRIA, TDEE_POR_DIA } from '../data/nutricion.data';
+import { TIEMPOS, OPCIONES, sumar } from '../data/comidas';
 
 @Component({
   selector: 'p-nutricion',
@@ -14,6 +16,70 @@ import { TIPOS_DIA, MENUS, ALIMENTOS, ANTROPOMETRIA, TDEE_POR_DIA } from '../dat
       {{ antro.kcalPromedioPlan | number }} kcal contra un gasto estimado de
       {{ antro.tdeePromedio | number }}.
     </p>
+
+    <div class="card registro">
+      <div class="cab">
+        <div>
+          <h2 style="margin:0">Qué comí hoy</h2>
+          <span class="dim">
+            Mezclá libremente: desayuno ligero y cena fuerte si así te salió el día.
+          </span>
+        </div>
+        @if (algoRegistrado()) {
+          <button (click)="store.limpiarComidas(plan.hoy())">Limpiar</button>
+        }
+      </div>
+
+      <div class="tiempos">
+        @for (t of tiempos; track t.clave) {
+          <label class="tiempo">
+            <span class="dim">{{ t.etiqueta }}</span>
+            <select [ngModel]="elegido(t.clave)"
+                    (ngModelChange)="store.fijarComida(plan.hoy(), t.clave, $event || null)">
+              <option value="">— no comí —</option>
+              @for (o of opciones[t.clave]; track o.id) {
+                <option [value]="o.id">{{ o.etiqueta }}</option>
+              }
+            </select>
+          </label>
+        }
+      </div>
+
+      <div class="scroll-x" style="margin-top:1rem">
+        <table>
+          <thead>
+            <tr><th></th><th class="num">Comido</th><th class="num">Objetivo</th><th class="num">Diferencia</th><th>Avance</th></tr>
+          </thead>
+          <tbody>
+            @for (f of balance(); track f.etiqueta) {
+              <tr>
+                <td>{{ f.etiqueta }}</td>
+                <td class="num"><strong>{{ f.comido | number }}</strong></td>
+                <td class="num dim">{{ f.objetivo | number }}</td>
+                <td class="num" [style.color]="f.color">
+                  {{ f.dif > 0 ? '+' : '' }}{{ f.dif | number }}
+                </td>
+                <td>
+                  <div class="barra">
+                    <div class="bar"><i [style.width.%]="min100(f.porc)" [style.background]="f.color"></i></div>
+                    <span class="dim">{{ f.porc }} %</span>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      @if (algoRegistrado()) {
+        <div class="nota">{{ veredicto() }}</div>
+      } @else {
+        <p class="dim" style="margin:.7rem 0 0">
+          Elegí lo que comiste en cada tiempo y se va sumando contra el objetivo
+          de hoy ({{ objetivo(diaHoy()).kcal | number }} kcal, día {{ diaHoy() }}).
+        </p>
+      }
+    </div>
 
     <div class="card">
       <h2>Por qué no es un número fijo</h2>
@@ -143,10 +209,22 @@ import { TIPOS_DIA, MENUS, ALIMENTOS, ANTROPOMETRIA, TDEE_POR_DIA } from '../dat
     .calc { display: flex; gap: .5rem; align-items: center; }
     .calc select { flex: 3; } .calc input { flex: 1; min-width: 80px; }
     .calc .dim { flex: 0 0 auto; }
+    .registro { border-color: color-mix(in srgb, var(--nado) 35%, transparent); }
+    .tiempos { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+               gap: .6rem; margin-top: .8rem; }
+    .tiempo span { display: block; font-size: .74rem; margin-bottom: .2rem;
+                   text-transform: uppercase; letter-spacing: .04em; }
+    .tiempo select { font-size: .82rem; }
+    .barra { display: flex; align-items: center; gap: .5rem; min-width: 130px; }
+    .barra .bar { flex: 1; }
+    .barra .dim { font-family: var(--mono); font-size: .75rem; min-width: 36px; text-align: right; }
   `],
 })
 export class NutricionPage {
-  private plan = inject(PlanService);
+  plan = inject(PlanService);
+  store = inject(StorageService);
+  tiempos = TIEMPOS;
+  opciones = OPCIONES;
   antro = ANTROPOMETRIA;
   tdee = TDEE_POR_DIA;
   alimentos = ALIMENTOS;
@@ -164,6 +242,45 @@ export class NutricionPage {
 
   objetivo(t: string) { return TIPOS_DIA[t]; }
   menu = computed(() => MENUS[this.sel()]);
+
+  // ------------------------------------------------------- registro del día
+  diaHoy = computed(() => this.plan.diaBaseHoy().tipoDia);
+  private registro = computed(() => this.store.comidasDe(this.plan.hoy()));
+  elegido(tiempo: string) { return this.registro()[tiempo] ?? ''; }
+  algoRegistrado = computed(() => Object.keys(this.registro()).length > 0);
+  min100(n: number) { return Math.min(100, n); }
+
+  balance = computed(() => {
+    const t = sumar(this.registro());
+    const o = TIPOS_DIA[this.diaHoy()];
+    const filas: [string, number, number][] = [
+      ['Calorías', t.kcal, o.kcal], ['Proteína (g)', t.p, o.p],
+      ['Carbohidrato (g)', t.c, o.c], ['Grasa (g)', t.g, o.g],
+    ];
+    return filas.map(([etiqueta, comido, objetivo]) => {
+      const porc = objetivo ? Math.round((comido / objetivo) * 100) : 0;
+      // Proteína: quedarse corto es el problema. El resto: pasarse.
+      const esProteina = etiqueta.startsWith('Proteína');
+      const bien = esProteina ? porc >= 90 : porc >= 85 && porc <= 110;
+      const regular = esProteina ? porc >= 75 : porc >= 70 && porc <= 125;
+      return {
+        etiqueta, comido, objetivo,
+        dif: +(comido - objetivo).toFixed(1), porc,
+        color: bien ? 'var(--ok)' : regular ? 'var(--warn)' : 'var(--bad)',
+      };
+    });
+  });
+
+  veredicto = computed(() => {
+    const b = this.balance();
+    const kcal = b[0], prot = b[1];
+    const partes: string[] = [];
+    if (prot.dif < -25) partes.push(`Te faltan ${Math.abs(prot.dif).toFixed(0)} g de proteína: es lo único que no conviene recortar.`);
+    if (kcal.dif > 250) partes.push(`Vas ${kcal.dif.toFixed(0)} kcal arriba del objetivo de hoy.`);
+    else if (kcal.dif < -400) partes.push(`Vas ${Math.abs(kcal.dif).toFixed(0)} kcal abajo. Comer de menos hoy te pasa factura en la sesión de mañana.`);
+    if (!partes.length) partes.push('Vas bien para el objetivo de hoy.');
+    return partes.join(' ');
+  });
 
   calculado = computed(() => {
     const a = ALIMENTOS.find(x => x.nombre === this.alimentoSel());

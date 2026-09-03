@@ -45,24 +45,31 @@ import { TIPOS_DIA } from '../data/nutricion.data';
               {{ prot(d.tipoDia) }} g proteína
             </span>
           </div>
-          @if (d.fecha === plan.hoy()) { <span class="chip">Hoy</span> }
+          <div class="derecha">
+            @if (d.fecha === plan.hoy()) { <span class="chip">Hoy</span> }
+            @if (d.todoHecho) { <span class="chip ok">Completo</span> }
+          </div>
         </div>
 
-        @for (s of d.sesiones; track $index) {
+        @if (d.todoHecho) {
+          <p class="listo">Nada pendiente hoy.</p>
+        }
+
+        @for (s of d.pendientes; track s.i) {
           <div class="sesion">
             <div class="fila">
-              <input type="checkbox" [checked]="hecha(d.fecha, $index)"
-                     (change)="alternar(d.fecha, $index)"
+              <input type="checkbox" [checked]="false"
+                     (change)="alternar(d.fecha, s.i)"
                      [attr.aria-label]="'Marcar ' + s.titulo" />
-              <button class="abrir" (click)="alternarDetalle(d.fecha, $index)"
-                      [attr.aria-expanded]="abierta(d.fecha, $index)">
+              <button class="abrir" (click)="alternarDetalle(d.fecha, s.i)"
+                      [attr.aria-expanded]="abierta(d.fecha, s.i)">
                 <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
-                <span class="tit" [class.tachado]="hecha(d.fecha, $index)">{{ s.titulo }}</span>
+                <span class="tit">{{ s.titulo }}</span>
                 <span class="dim min">{{ s.min }}′ · {{ s.zona }}</span>
-                <span class="flecha" [class.girada]="abierta(d.fecha, $index)">▸</span>
+                <span class="flecha" [class.girada]="abierta(d.fecha, s.i)">▸</span>
               </button>
             </div>
-            @if (abierta(d.fecha, $index)) {
+            @if (abierta(d.fecha, s.i)) {
               <div class="detalle">
                 <ul class="pasos">@for (p of s.pasos; track $index) { <li>{{ p }}</li> }</ul>
                 @if (s.nota) { <div class="nota">{{ s.nota }}</div> }
@@ -70,7 +77,29 @@ import { TIPOS_DIA } from '../data/nutricion.data';
             }
           </div>
         }
-        @if (d.crossfit) {
+
+        @if (d.hechas.length) {
+          <div class="hechas">
+            <button class="tira" (click)="alternarHechas(d.fecha)"
+                    [attr.aria-expanded]="hechasAbiertas(d.fecha)">
+              <span class="tic">✓</span>
+              {{ d.hechas.length }} {{ d.hechas.length === 1 ? 'hecha' : 'hechas' }}
+              <span class="flecha" [class.girada]="hechasAbiertas(d.fecha)">▸</span>
+            </button>
+            @if (hechasAbiertas(d.fecha)) {
+              @for (s of d.hechas; track s.i) {
+                <label class="fila hecha">
+                  <input type="checkbox" checked (change)="alternar(d.fecha, s.i)"
+                         [attr.aria-label]="'Desmarcar ' + s.titulo" />
+                  <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
+                  <span class="tit tachado">{{ s.titulo }}</span>
+                </label>
+              }
+            }
+          </div>
+        }
+
+        @if (d.crossfit && !d.todoHecho) {
           <p class="dim" style="margin:.5rem 0 0">
             CrossFit esta semana: {{ sem().crossfitDias }} días. Pasame los WOD y los acomodo.
           </p>
@@ -134,6 +163,15 @@ import { TIPOS_DIA } from '../data/nutricion.data';
     .flecha.girada { transform: rotate(90deg); }
     .detalle { padding: 0 0 .7rem 2rem; }
     .detalle .pasos { margin-top: 0; }
+    .derecha { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+    .listo { margin: .5rem 0 0; font-size: .85rem; color: var(--ok); }
+    .hechas { margin-top: .5rem; padding-top: .5rem; border-top: 1px dashed var(--line); }
+    .tira { background: none; border: none; color: var(--muted); font-size: .78rem;
+            display: flex; align-items: center; gap: .35rem; padding: .15rem .2rem; }
+    .tira:hover { color: var(--text); }
+    .tic { color: var(--ok); font-weight: 700; }
+    .fila.hecha { opacity: .55; cursor: pointer; padding-left: .2rem; }
+    .fila.hecha .tit { font-size: .84rem; }
     .escalas { display: flex; gap: .7rem; flex-wrap: wrap; }
     .escalas label { flex: 1; min-width: 140px; }
     .escalas span, .campo span { display: block; font-size: .76rem; margin-bottom: .2rem; }
@@ -150,37 +188,45 @@ export class SemanaPage {
   dias = computed(() => {
     const fechas = this.plan.fechasSemana();
     const s = this.sem();
-    return SEMANA_BASE.map((d, i) => ({
-      ...d,
-      fecha: fechas[i],
-      sesiones: this.plan.sesionesDelDia(d.dow, s),
-      crossfit: d.sesiones.some(x => x.disciplina === 'fuerza'),
-    }));
+    return SEMANA_BASE.map((d, i) => {
+      const fecha = fechas[i];
+      // `i` original se conserva en cada sesión: es la clave con la que se
+      // guarda el marcado, y no puede cambiar al separar hechas de pendientes.
+      const sesiones = this.plan.sesionesDelDia(d.dow, s).map((x, i2) => ({ ...x, i: i2 }));
+      const hechas = sesiones.filter(x => this.store.estaHecha(`${fecha}:${x.i}`));
+      const pendientes = sesiones.filter(x => !this.store.estaHecha(`${fecha}:${x.i}`));
+      return {
+        ...d, fecha, sesiones, hechas, pendientes,
+        todoHecho: sesiones.length > 0 && pendientes.length === 0,
+        crossfit: d.sesiones.some(x => x.disciplina === 'fuerza'),
+      };
+    });
   });
 
   kcal(t: string) { return TIPOS_DIA[t].kcal; }
   prot(t: string) { return TIPOS_DIA[t].p; }
 
   total = computed(() => this.dias().reduce((a, d) => a + d.sesiones.length, 0));
-  completadas = computed(() =>
-    this.dias().reduce((a, d) =>
-      a + d.sesiones.filter((_, i) => this.store.estaHecha(`${d.fecha}:${i}`)).length, 0)
-  );
+  completadas = computed(() => this.dias().reduce((a, d) => a + d.hechas.length, 0));
   pct = computed(() => this.total() ? Math.round(100 * this.completadas() / this.total()) : 0);
 
   /** Qué sesiones están desplegadas. Solo visual, no se guarda. */
   private desplegadas = signal<Set<string>>(new Set());
+  private hechasVisibles = signal<Set<string>>(new Set());
 
-  abierta(f: string, i: number) { return this.desplegadas().has(`${f}:${i}`); }
-
-  alternarDetalle(f: string, i: number) {
-    const k = `${f}:${i}`;
-    this.desplegadas.update(s => {
+  private alternarEn(sig: typeof this.desplegadas, k: string) {
+    sig.update(s => {
       const n = new Set(s);
       n.has(k) ? n.delete(k) : n.add(k);
       return n;
     });
   }
+
+  abierta(f: string, i: number) { return this.desplegadas().has(`${f}:${i}`); }
+  alternarDetalle(f: string, i: number) { this.alternarEn(this.desplegadas, `${f}:${i}`); }
+
+  hechasAbiertas(f: string) { return this.hechasVisibles().has(f); }
+  alternarHechas(f: string) { this.alternarEn(this.hechasVisibles, f); }
 
   hecha(f: string, i: number) { return this.store.estaHecha(`${f}:${i}`); }
   alternar(f: string, i: number) {

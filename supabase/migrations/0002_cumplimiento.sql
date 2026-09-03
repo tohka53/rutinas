@@ -43,6 +43,12 @@ create table if not exists public.rutina_dia (
 comment on table public.rutina_dia is
   'Estado declarado del dia. descanso = true lo saca del calculo de cumplimiento.';
 
+-- Que comio en cada tiempo de comida, mezclando menus de distinto tipo de dia.
+-- Formato: {"desayuno": "ligero|Desayuno", "cena": "fuerte|Cena post-entreno"}
+-- Va como jsonb y no como tabla aparte porque siempre se lee junto con el dia.
+alter table public.rutina_dia
+  add column if not exists comidas jsonb not null default '{}'::jsonb;
+
 -- ------------------------------------------------------------------ seguridad
 -- Igual que las otras: RLS encendido y sin politicas. Solo la secret key entra.
 alter table public.rutina_actividad enable row level security;

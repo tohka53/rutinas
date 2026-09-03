@@ -7,7 +7,10 @@ export interface FilaSesion { fecha: string; indice: number; disciplina?: string
 export interface FilaWod { fecha: string; texto: string; escalado?: string | null; }
 export interface FilaNota { semana: number; sensaciones?: string | null; sueno?: number | null; energia?: number | null; molestias?: string | null; }
 
-export interface FilaDia { fecha: string; descanso: boolean; nota?: string | null; }
+export interface FilaDia {
+  fecha: string; descanso: boolean; nota?: string | null;
+  comidas?: Record<string, string> | null;
+}
 export interface FilaActividad {
   strava_id: number; fecha: string; disciplina: string; sport_type?: string | null;
   nombre?: string | null; metros: number; segundos: number;

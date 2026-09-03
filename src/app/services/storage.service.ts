@@ -12,13 +12,14 @@ export interface Estado {
   notas: Record<number, NotaSemana>; // semana -> nota
   descansos: Record<string, boolean>; // "YYYY-MM-DD" -> descanso deliberado
   actividades: Actividad[];           // importadas de Strava
+  comidas: Record<string, Record<string, string>>; // fecha -> tiempo -> id de opción
 }
 
 interface Pendiente { tipo: string; accion: 'guardar' | 'borrar'; datos: any; }
 
 const CLAVE = 'rutina703.v2';
 const CLAVE_COLA = 'rutina703.cola';
-const VACIO: Estado = { pesos: [], hechas: {}, wods: {}, notas: {}, descansos: {}, actividades: [] };
+const VACIO: Estado = { pesos: [], hechas: {}, wods: {}, notas: {}, descansos: {}, actividades: [], comidas: {} };
 
 function leerLocal<T>(clave: string, porDefecto: T): T {
   try {
@@ -80,12 +81,16 @@ export class StorageService {
         notas[n.semana] = { sensaciones: n.sensaciones, sueno: n.sueno, energia: n.energia, molestias: n.molestias };
       }
       const descansos: Record<string, boolean> = {};
-      for (const d of remoto.dias ?? []) if (d.descanso) descansos[d.fecha] = true;
+      const comidas: Record<string, Record<string, string>> = {};
+      for (const d of remoto.dias ?? []) {
+        if (d.descanso) descansos[d.fecha] = true;
+        if (d.comidas && Object.keys(d.comidas).length) comidas[d.fecha] = d.comidas;
+      }
       const actividades = (remoto.actividades ?? []) as Actividad[];
 
       this.estado.set({
         pesos: pesos.sort((a, b) => a.fecha.localeCompare(b.fecha)),
-        hechas, wods, notas, descansos, actividades,
+        hechas, wods, notas, descansos, actividades, comidas,
       });
     } finally {
       this.sincronizando.set(false);
@@ -155,7 +160,34 @@ export class StorageService {
 
   marcarDescanso(fecha: string, descanso: boolean) {
     this.estado.update(e => ({ ...e, descansos: { ...e.descansos, [fecha]: descanso } }));
-    void this.empujar('dia', 'guardar', { fecha, descanso });
+    // rutina_dia guarda descanso y comidas juntos: se manda la fila completa
+    // para no pisar lo otro con un upsert parcial.
+    void this.empujar('dia', 'guardar',
+      { fecha, descanso, comidas: this.estado().comidas[fecha] ?? {} });
+  }
+
+  // -------------------------------------------------------- comidas del día
+  comidasDe(fecha: string): Record<string, string> {
+    return this.estado().comidas[fecha] ?? {};
+  }
+
+  fijarComida(fecha: string, tiempo: string, id: string | null) {
+    this.estado.update(e => {
+      const previo = { ...(e.comidas[fecha] ?? {}) };
+      if (id) previo[tiempo] = id; else delete previo[tiempo];
+      return { ...e, comidas: { ...e.comidas, [fecha]: previo } };
+    });
+    void this.empujar('dia', 'guardar', {
+      fecha,
+      descanso: !!this.estado().descansos[fecha],
+      comidas: this.estado().comidas[fecha] ?? {},
+    });
+  }
+
+  limpiarComidas(fecha: string) {
+    this.estado.update(e => ({ ...e, comidas: { ...e.comidas, [fecha]: {} } }));
+    void this.empujar('dia', 'guardar',
+      { fecha, descanso: !!this.estado().descansos[fecha], comidas: {} });
   }
 
   // ---------------------------------------------------- actividades de Strava
@@ -170,6 +202,7 @@ export class StorageService {
       this.estado.set({
         pesos: p.pesos ?? [], hechas: p.hechas ?? {}, wods: p.wods ?? {},
         notas: p.notas ?? {}, descansos: p.descansos ?? {}, actividades: p.actividades ?? [],
+        comidas: p.comidas ?? {},
       });
       return true;
     } catch { return false; }
