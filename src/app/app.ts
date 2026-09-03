@@ -1,11 +1,31 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { PlanService, fechaCorta } from './services/plan.service';
+import { ApiService } from './services/api.service';
+import { StorageService } from './services/storage.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule],
   template: `
+    @if (api.conexion() === 'sin-codigo' || api.conexion() === 'rechazado') {
+      <div class="puerta">
+        <form class="card caja" (submit)="entrar($event)">
+          <span class="mark">70.3</span>
+          <h1>Rutina de Miguel</h1>
+          <p class="muted">Escribí el código de acceso para sincronizar tu progreso.</p>
+          <input type="password" inputmode="numeric" autocomplete="off" placeholder="Código"
+                 [ngModel]="codigo()" (ngModelChange)="codigo.set($event)" name="codigo" autofocus />
+          @if (api.ultimoError()) { <p class="err">{{ api.ultimoError() }}</p> }
+          <button class="primary" type="submit" [disabled]="!codigo().trim()">Entrar</button>
+          <button type="button" class="link" (click)="sinCodigo()">
+            Seguir sin sincronizar (solo este navegador)
+          </button>
+        </form>
+      </div>
+    }
+
     <header>
       <div class="wrap top">
         <div class="brand">
@@ -29,6 +49,11 @@ import { PlanService, fechaCorta } from './services/plan.service';
           <a [routerLink]="l.path" routerLinkActive="on"
              [routerLinkActiveOptions]="{ exact: l.path === '' }">{{ l.label }}</a>
         }
+        <button class="estado" [class]="'estado ' + api.conexion()" (click)="store.sincronizar()"
+                [title]="titulo()">
+          <i></i>{{ etiqueta() }}
+          @if (store.pendientes()) { <span class="badge">{{ store.pendientes() }}</span> }
+        </button>
       </nav>
     </header>
 
@@ -36,7 +61,11 @@ import { PlanService, fechaCorta } from './services/plan.service';
 
     <footer class="wrap dim">
       Plan de 26 semanas · 7 sep 2026 → 7 mar 2027 · ritmos calibrados con tus datos de Strava.
-      El progreso se guarda solo en este navegador.
+      @if (api.conexion() === 'conectado') {
+        Tu progreso se guarda en Supabase y se ve desde cualquier dispositivo.
+      } @else {
+        Sin conexión al servidor: el progreso se guarda solo en este navegador.
+      }
     </footer>
   `,
   styles: [`
@@ -53,18 +82,44 @@ import { PlanService, fechaCorta } from './services/plan.service';
     .cuenta.urgente { border-color: color-mix(in srgb, var(--bici) 50%, transparent); }
     .cuenta .d { font-family: var(--mono); font-size: 1.15rem; font-weight: 700; display: block; line-height: 1.1; }
     .cuenta .dim { font-size: .68rem; }
-    nav { display: flex; gap: .15rem; overflow-x: auto; padding-bottom: 0; }
+    nav { display: flex; gap: .15rem; overflow-x: auto; align-items: center; }
     nav a { color: var(--muted); text-decoration: none; font-size: .87rem; font-weight: 600;
             padding: .5rem .7rem; border-bottom: 2px solid transparent; white-space: nowrap; }
     nav a:hover { color: var(--text); }
     nav a.on { color: var(--text); border-bottom-color: var(--nado); }
     main { padding-top: 1.1rem; }
     footer { padding-top: 1.5rem; font-size: .78rem; border-top: 1px solid var(--line); margin-top: 2rem; }
+
+    .estado { margin-left: auto; display: flex; align-items: center; gap: .35rem; white-space: nowrap;
+              background: none; border: none; font-size: .74rem; color: var(--muted); padding: .5rem .4rem; }
+    .estado i { width: 7px; height: 7px; border-radius: 99px; background: var(--dim); flex: 0 0 auto; }
+    .estado.conectado i { background: var(--ok); }
+    .estado.offline i, .estado.rechazado i { background: var(--warn); }
+    .estado.verificando i { background: var(--nado); animation: late 1.2s ease-in-out infinite; }
+    @keyframes late { 50% { opacity: .25; } }
+    .badge { background: var(--warn); color: #2a1f00; border-radius: 99px; padding: 0 .32rem;
+             font-weight: 700; font-size: .68rem; }
+
+    .puerta { position: fixed; inset: 0; z-index: 100; background: var(--bg);
+              display: grid; place-items: center; padding: 1rem; }
+    .caja { width: min(360px, 100%); display: flex; flex-direction: column; gap: .6rem; text-align: center; }
+    .caja .mark { align-self: center; }
+    .caja h1 { margin: 0; font-size: 1.15rem; }
+    .caja p { margin: 0; font-size: .85rem; }
+    .caja input { text-align: center; font-family: var(--mono); font-size: 1.1rem; letter-spacing: .2em; }
+    .err { color: var(--bad) !important; font-size: .82rem !important; }
+    button.link { background: none; border: none; color: var(--muted); font-size: .78rem;
+                  text-decoration: underline; padding: .2rem; }
+
     @media (max-width: 560px) { .cuentas { width: 100%; } .cuenta { flex: 1; } }
   `],
 })
 export class App {
   private plan = inject(PlanService);
+  api = inject(ApiService);
+  store = inject(StorageService);
+
+  codigo = signal('');
 
   links = [
     { path: '', label: 'Hoy' },
@@ -81,4 +136,26 @@ export class App {
       .slice(0, 2)
       .map(c => ({ ...c, corto: fechaCorta(c.fecha) }))
   );
+
+  etiqueta = computed(() => ({
+    'sin-codigo': 'local', verificando: 'conectando', conectado: 'en la nube',
+    rechazado: 'código malo', offline: 'sin conexión',
+  }[this.api.conexion()]));
+
+  titulo = computed(() => this.store.pendientes()
+    ? `${this.store.pendientes()} cambio(s) sin subir. Tocá para reintentar.`
+    : 'Tocá para volver a sincronizar');
+
+  entrar(e: Event) {
+    e.preventDefault();
+    this.api.fijarCodigo(this.codigo());
+    this.codigo.set('');
+    void this.store.sincronizar();
+  }
+
+  /** Deja usar la app sin backend: todo queda en localStorage. */
+  sinCodigo() {
+    this.api.conexion.set('offline');
+    this.api.ultimoError.set(null);
+  }
 }

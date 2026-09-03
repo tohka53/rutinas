@@ -13,6 +13,42 @@ npm install
 npm start          # http://localhost:4200
 ```
 
+Con `ng serve` no corren las funciones de `/api`, así que la app arranca en modo
+local (todo en `localStorage`). Para probar con backend: `npx vercel dev`.
+
+## Dónde se guarda el progreso
+
+Peso, sesiones marcadas, WOD y notas semanales viven en **Supabase**, en el proyecto
+`AppCompe`. Las cuatro tablas llevan prefijo `rutina_` y no tocan nada de lo que ya
+existía ahí.
+
+El navegador **nunca** ve las llaves de Supabase. La app le pega a `/api/datos`, una
+función serverless que valida el código de acceso y recién ahí habla con la base
+usando la secret key desde variables de entorno:
+
+```
+Angular ──fetch + header x-codigo──▶ /api/datos ──secret key──▶ Supabase (RLS deny-all)
+```
+
+`localStorage` sigue existiendo, pero como caché: si el servidor está caído, el dato
+se guarda igual y queda en una cola que se vacía sola cuando vuelve la conexión.
+El indicador en la barra de navegación dice en qué modo estás.
+
+### Puesta en marcha
+
+1. Corré `supabase/migrations/0001_rutina_703.sql` en el SQL Editor de Supabase.
+2. En Vercel → Settings → Environment Variables, agregá las tres:
+
+   | Variable | Dónde sale |
+   |---|---|
+   | `SUPABASE_URL` | `https://<project-id>.supabase.co` |
+   | `SUPABASE_SECRET_KEY` | Settings → API Keys → Secret keys (`sb_secret_…`) |
+   | `CODIGO_ACCESO` | El código que escribís al entrar |
+
+3. Redeploy. Al abrir la app te pide el código una sola vez por dispositivo.
+
+Ninguno de esos tres valores va en el repo.
+
 ## Desplegarlo en Vercel
 
 ```bash
@@ -39,6 +75,10 @@ el framework se autodetecta como Angular y `vercel.json` hace el resto.
 ## Estructura
 
 ```
+api/
+└── datos.mjs               # única puerta a Supabase; valida el código de acceso
+supabase/migrations/
+└── 0001_rutina_703.sql     # las 4 tablas rutina_*, con RLS deny-all
 src/app/
 ├── data/
 │   ├── plan.data.ts        # 26 semanas — GENERADO por gen_plan.py
@@ -47,7 +87,8 @@ src/app/
 │   └── carreras.data.ts    # carreras, proyecciones y punto de decisión
 ├── services/
 │   ├── plan.service.ts     # qué semana/día es hoy, cuentas regresivas
-│   └── storage.service.ts  # localStorage con try/catch
+│   ├── api.service.ts      # cliente de /api/datos y estado de conexión
+│   └── storage.service.ts  # caché local + cola de reintentos + sincronización
 └── pages/                  # una por ruta, lazy-loaded
 ```
 

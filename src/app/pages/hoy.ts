@@ -129,7 +129,8 @@ export class HoyPage {
   hecha(i: number) { return this.store.estaHecha(`${this.plan.hoy()}:${i}`); }
   alternar(i: number) {
     const k = `${this.plan.hoy()}:${i}`;
-    this.store.marcar(k, !this.store.estaHecha(k));
+    const s = this.sesiones()[i];
+    this.store.marcar(k, !this.store.estaHecha(k), { disciplina: s?.disciplina, titulo: s?.titulo });
   }
   wod = computed(() => this.store.estado().wods[this.plan.hoy()] ?? '');
   guardarWod(t: string) { this.store.guardarWod(this.plan.hoy(), t); }
