@@ -1,4 +1,4 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { PlanService, fechaCorta } from '../services/plan.service';
@@ -49,13 +49,26 @@ import { TIPOS_DIA } from '../data/nutricion.data';
         </div>
 
         @for (s of d.sesiones; track $index) {
-          <label class="fila">
-            <input type="checkbox" [checked]="hecha(d.fecha, $index)"
-                   (change)="alternar(d.fecha, $index)" />
-            <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
-            <span class="tit" [class.tachado]="hecha(d.fecha, $index)">{{ s.titulo }}</span>
-            <span class="dim min">{{ s.min }}′</span>
-          </label>
+          <div class="sesion">
+            <div class="fila">
+              <input type="checkbox" [checked]="hecha(d.fecha, $index)"
+                     (change)="alternar(d.fecha, $index)"
+                     [attr.aria-label]="'Marcar ' + s.titulo" />
+              <button class="abrir" (click)="alternarDetalle(d.fecha, $index)"
+                      [attr.aria-expanded]="abierta(d.fecha, $index)">
+                <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
+                <span class="tit" [class.tachado]="hecha(d.fecha, $index)">{{ s.titulo }}</span>
+                <span class="dim min">{{ s.min }}′ · {{ s.zona }}</span>
+                <span class="flecha" [class.girada]="abierta(d.fecha, $index)">▸</span>
+              </button>
+            </div>
+            @if (abierta(d.fecha, $index)) {
+              <div class="detalle">
+                <ul class="pasos">@for (p of s.pasos; track $index) { <li>{{ p }}</li> }</ul>
+                @if (s.nota) { <div class="nota">{{ s.nota }}</div> }
+              </div>
+            }
+          </div>
         }
         @if (d.crossfit) {
           <p class="dim" style="margin:.5rem 0 0">
@@ -106,13 +119,21 @@ import { TIPOS_DIA } from '../data/nutricion.data';
   styles: [`
     .cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
     .dia.hoy { border-color: color-mix(in srgb, var(--nado) 45%, transparent); }
-    .fila { display: flex; align-items: center; gap: .55rem; padding: .45rem 0;
-            border-bottom: 1px solid var(--line); cursor: pointer; }
-    .fila:last-of-type { border-bottom: none; }
-    .fila input { width: auto; accent-color: var(--nado); flex: 0 0 auto; }
-    .tit { flex: 1; font-size: .88rem; }
+    .sesion { border-bottom: 1px solid var(--line); }
+    .sesion:last-of-type { border-bottom: none; }
+    .fila { display: flex; align-items: center; gap: .55rem; padding: .45rem 0; }
+    .fila input { width: auto; accent-color: var(--nado); flex: 0 0 auto; cursor: pointer; }
+    .abrir { flex: 1; display: flex; align-items: center; gap: .55rem; text-align: left;
+             background: none; border: none; padding: .15rem .2rem; border-radius: 6px; }
+    .abrir:hover { background: var(--surface-2); border-color: transparent; }
+    .tit { flex: 1; font-size: .88rem; font-weight: 400; }
     .tit.tachado { text-decoration: line-through; color: var(--dim); }
-    .min { flex: 0 0 auto; font-family: var(--mono); font-size: .78rem; }
+    .min { flex: 0 0 auto; font-family: var(--mono); font-size: .75rem; }
+    .flecha { flex: 0 0 auto; color: var(--muted); font-size: .8rem;
+              transition: transform .15s ease; display: inline-block; }
+    .flecha.girada { transform: rotate(90deg); }
+    .detalle { padding: 0 0 .7rem 2rem; }
+    .detalle .pasos { margin-top: 0; }
     .escalas { display: flex; gap: .7rem; flex-wrap: wrap; }
     .escalas label { flex: 1; min-width: 140px; }
     .escalas span, .campo span { display: block; font-size: .76rem; margin-bottom: .2rem; }
@@ -146,6 +167,20 @@ export class SemanaPage {
       a + d.sesiones.filter((_, i) => this.store.estaHecha(`${d.fecha}:${i}`)).length, 0)
   );
   pct = computed(() => this.total() ? Math.round(100 * this.completadas() / this.total()) : 0);
+
+  /** Qué sesiones están desplegadas. Solo visual, no se guarda. */
+  private desplegadas = signal<Set<string>>(new Set());
+
+  abierta(f: string, i: number) { return this.desplegadas().has(`${f}:${i}`); }
+
+  alternarDetalle(f: string, i: number) {
+    const k = `${f}:${i}`;
+    this.desplegadas.update(s => {
+      const n = new Set(s);
+      n.has(k) ? n.delete(k) : n.add(k);
+      return n;
+    });
+  }
 
   hecha(f: string, i: number) { return this.store.estaHecha(`${f}:${i}`); }
   alternar(f: string, i: number) {

@@ -1,5 +1,6 @@
 import { Injectable, signal, effect, inject, computed } from '@angular/core';
 import { ApiService } from './api.service';
+import type { Actividad } from '../data/cumplimiento';
 
 export interface RegistroPeso { fecha: string; kg: number; nota?: string | null; }
 export interface NotaSemana { sensaciones?: string | null; sueno?: number | null; energia?: number | null; molestias?: string | null; }
@@ -9,13 +10,15 @@ export interface Estado {
   hechas: Record<string, boolean>;   // "YYYY-MM-DD:indice"
   wods: Record<string, string>;      // "YYYY-MM-DD" -> texto
   notas: Record<number, NotaSemana>; // semana -> nota
+  descansos: Record<string, boolean>; // "YYYY-MM-DD" -> descanso deliberado
+  actividades: Actividad[];           // importadas de Strava
 }
 
 interface Pendiente { tipo: string; accion: 'guardar' | 'borrar'; datos: any; }
 
 const CLAVE = 'rutina703.v2';
 const CLAVE_COLA = 'rutina703.cola';
-const VACIO: Estado = { pesos: [], hechas: {}, wods: {}, notas: {} };
+const VACIO: Estado = { pesos: [], hechas: {}, wods: {}, notas: {}, descansos: {}, actividades: [] };
 
 function leerLocal<T>(clave: string, porDefecto: T): T {
   try {
@@ -76,7 +79,14 @@ export class StorageService {
       for (const n of remoto.notas ?? []) {
         notas[n.semana] = { sensaciones: n.sensaciones, sueno: n.sueno, energia: n.energia, molestias: n.molestias };
       }
-      this.estado.set({ pesos: pesos.sort((a, b) => a.fecha.localeCompare(b.fecha)), hechas, wods, notas });
+      const descansos: Record<string, boolean> = {};
+      for (const d of remoto.dias ?? []) if (d.descanso) descansos[d.fecha] = true;
+      const actividades = (remoto.actividades ?? []) as Actividad[];
+
+      this.estado.set({
+        pesos: pesos.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+        hechas, wods, notas, descansos, actividades,
+      });
     } finally {
       this.sincronizando.set(false);
     }
@@ -140,13 +150,27 @@ export class StorageService {
     void this.empujar('nota', 'guardar', { semana, ...nota });
   }
 
+  // --------------------------------------------------------- día de descanso
+  esDescanso(fecha: string): boolean { return !!this.estado().descansos[fecha]; }
+
+  marcarDescanso(fecha: string, descanso: boolean) {
+    this.estado.update(e => ({ ...e, descansos: { ...e.descansos, [fecha]: descanso } }));
+    void this.empujar('dia', 'guardar', { fecha, descanso });
+  }
+
+  // ---------------------------------------------------- actividades de Strava
+  readonly actividades = computed(() => this.estado().actividades);
+
   // ------------------------------------------------------------------ respaldo
   exportar(): string { return JSON.stringify(this.estado(), null, 2); }
 
   importar(json: string): boolean {
     try {
       const p = JSON.parse(json);
-      this.estado.set({ pesos: p.pesos ?? [], hechas: p.hechas ?? {}, wods: p.wods ?? {}, notas: p.notas ?? {} });
+      this.estado.set({
+        pesos: p.pesos ?? [], hechas: p.hechas ?? {}, wods: p.wods ?? {},
+        notas: p.notas ?? {}, descansos: p.descansos ?? {}, actividades: p.actividades ?? [],
+      });
       return true;
     } catch { return false; }
   }

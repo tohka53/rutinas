@@ -19,13 +19,6 @@ import { StorageService } from './services/storage.service';
                  [ngModel]="codigo()" (ngModelChange)="codigo.set($event)" name="codigo" autofocus />
           @if (api.ultimoError()) { <p class="err">{{ api.ultimoError() }}</p> }
           <button class="primary" type="submit" [disabled]="!codigo().trim()">Entrar</button>
-          <button type="button" class="secundario" (click)="api.usarSoloLocal()">
-            Usar sin sincronizar
-          </button>
-          <span class="dim">
-            Todo el plan funciona igual. El progreso queda en este navegador
-            y podés activar la nube después.
-          </span>
         </form>
       </div>
     }
@@ -61,13 +54,12 @@ import { StorageService } from './services/storage.service';
       </nav>
     </header>
 
-    @if (api.ultimoError() && !api.modoLocal() && api.conexion() !== 'sin-codigo') {
+    @if (api.ultimoError() && api.conexion() !== 'sin-codigo') {
       <div class="wrap">
         <div class="aviso-conexion">
           <strong>No se está guardando en la nube.</strong>
           <span>{{ api.ultimoError() }}</span>
           <button (click)="store.sincronizar()">Reintentar</button>
-          <button (click)="api.usarSoloLocal()">Seguir sin nube</button>
         </div>
       </div>
     }
@@ -79,9 +71,9 @@ import { StorageService } from './services/storage.service';
       @if (api.conexion() === 'conectado') {
         Tu progreso se guarda en Supabase y se ve desde cualquier dispositivo.
       } @else {
-        El progreso se guarda en este navegador. Tocá el indicador de arriba
-        para activar la sincronización cuando quieras.
+        Sin conexión con el servidor: los cambios quedan en cola y suben al reconectar.
       }
+      <button class="salir" (click)="salir()">Salir</button>
     </footer>
   `,
   styles: [`
@@ -132,9 +124,9 @@ import { StorageService } from './services/storage.service';
     .caja p { margin: 0; font-size: .85rem; }
     .caja input { text-align: center; font-family: var(--mono); font-size: 1.1rem; letter-spacing: .2em; }
     .err { color: var(--bad) !important; font-size: .82rem !important; }
-    button.secundario { background: var(--surface-2); }
     .caja .dim { font-size: .74rem; line-height: 1.4; }
-    .estado.offline i { background: var(--warn); }
+    button.salir { background: none; border: none; color: var(--muted); font-size: .76rem;
+                   text-decoration: underline; padding: 0 .3rem; margin-left: .4rem; }
 
     @media (max-width: 560px) { .cuentas { width: 100%; } .cuenta { flex: 1; } }
   `],
@@ -149,6 +141,7 @@ export class App {
   links = [
     { path: '', label: 'Hoy' },
     { path: 'semana', label: 'Semana' },
+    { path: 'cumplimiento', label: 'Cumplimiento' },
     { path: 'plan', label: 'Plan 26 sem' },
     { path: 'nutricion', label: 'Nutrición' },
     { path: 'peso', label: 'Peso' },
@@ -162,20 +155,14 @@ export class App {
       .map(c => ({ ...c, corto: fechaCorta(c.fecha) }))
   );
 
-  etiqueta = computed(() => {
-    if (this.api.modoLocal()) return 'en este equipo';
-    return {
-      'sin-codigo': 'local', verificando: 'conectando', conectado: 'en la nube',
-      rechazado: 'código malo', offline: 'sin conexión',
-    }[this.api.conexion()];
-  });
+  etiqueta = computed(() => ({
+    'sin-codigo': 'local', verificando: 'conectando', conectado: 'en la nube',
+    rechazado: 'código malo', offline: 'sin conexión',
+  }[this.api.conexion()]));
 
-  titulo = computed(() => {
-    if (this.api.modoLocal()) return 'Guardando solo en este navegador. Tocá para activar la nube.';
-    return this.store.pendientes()
-      ? `${this.store.pendientes()} cambio(s) sin subir. Tocá para reintentar.`
-      : 'Tocá para volver a sincronizar';
-  });
+  titulo = computed(() => this.store.pendientes()
+    ? `${this.store.pendientes()} cambio(s) sin subir. Tocá para reintentar.`
+    : 'Tocá para volver a sincronizar');
 
   entrar(e: Event) {
     e.preventDefault();
@@ -184,8 +171,10 @@ export class App {
     void this.store.sincronizar();
   }
 
-  tocarEstado() {
-    if (this.api.modoLocal()) this.api.reactivarSincronizacion();
-    else void this.store.sincronizar();
+  tocarEstado() { void this.store.sincronizar(); }
+
+  salir() {
+    this.api.olvidarCodigo();
+    this.codigo.set('');
   }
 }

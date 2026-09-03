@@ -20,7 +20,14 @@ const TABLAS = {
   sesion: { tabla: 'rutina_sesion', pk: ['fecha', 'indice'], orden: 'fecha.desc' },
   wod: { tabla: 'rutina_wod', pk: ['fecha'], orden: 'fecha.desc' },
   nota: { tabla: 'rutina_nota_semana', pk: ['semana'], orden: 'semana.asc' },
+  dia: { tabla: 'rutina_dia', pk: ['fecha'], orden: 'fecha.desc' },
+  actividad: { tabla: 'rutina_actividad', pk: ['strava_id'], orden: 'fecha.desc' },
 };
+
+// Tablas que puede faltar por no haber corrido la migración 0002. Si no están,
+// se devuelve una lista vacía en vez de tumbar toda la carga: el resto del
+// dashboard tiene que seguir funcionando.
+const OPCIONALES = new Set(['dia', 'actividad']);
 
 /** Comparación en tiempo constante: no filtra el código por diferencia de tiempos. */
 function codigoValido(recibido, esperado) {
@@ -112,13 +119,19 @@ export default async function handler(req, res) {
   try {
     // ------------------------------------------------ GET: traer todo el estado
     if (req.method === 'GET') {
-      const [pesos, sesiones, wods, notas] = await Promise.all([
+      // Las opcionales no deben tumbar la carga si falta la migración 0002.
+      const opcional = (clave) =>
+        db.leer(TABLAS[clave].tabla, TABLAS[clave].orden).catch(() => []);
+
+      const [pesos, sesiones, wods, notas, dias, actividades] = await Promise.all([
         db.leer(TABLAS.peso.tabla, TABLAS.peso.orden),
         db.leer(TABLAS.sesion.tabla, TABLAS.sesion.orden),
         db.leer(TABLAS.wod.tabla, TABLAS.wod.orden),
         db.leer(TABLAS.nota.tabla, TABLAS.nota.orden),
+        opcional('dia'),
+        opcional('actividad'),
       ]);
-      return res.status(200).json({ pesos, sesiones, wods, notas });
+      return res.status(200).json({ pesos, sesiones, wods, notas, dias, actividades });
     }
 
     // ------------------------------------------- POST: guardar o borrar una fila
@@ -133,20 +146,34 @@ export default async function handler(req, res) {
       if (!datos || typeof datos !== 'object') {
         return res.status(400).json({ error: 'falta el objeto datos' });
       }
-      for (const campo of cfg.pk) {
-        if (datos[campo] === undefined || datos[campo] === null) {
-          return res.status(400).json({ error: `falta la clave ${campo}` });
+
+      // Se acepta un arreglo para cargas masivas (la importación de Strava).
+      const filas = Array.isArray(datos) ? datos : [datos];
+      if (!filas.length) return res.status(400).json({ error: 'datos vacío' });
+      if (filas.length > 500) {
+        return res.status(400).json({ error: 'máximo 500 filas por llamada' });
+      }
+      for (const fila of filas) {
+        for (const campo of cfg.pk) {
+          if (fila?.[campo] === undefined || fila?.[campo] === null) {
+            return res.status(400).json({ error: `falta la clave ${campo}` });
+          }
         }
       }
 
       if (accion === 'borrar') {
+        if (Array.isArray(datos)) {
+          return res.status(400).json({ error: 'borrar acepta una sola fila' });
+        }
         const filtro = Object.fromEntries(cfg.pk.map(k => [k, datos[k]]));
         await db.borrar(cfg.tabla, filtro);
         return res.status(200).json({ ok: true, borrado: filtro });
       }
 
-      const [fila] = await db.guardar(cfg.tabla, datos);
-      return res.status(200).json({ ok: true, fila });
+      const guardadas = await db.guardar(cfg.tabla, Array.isArray(datos) ? datos : datos);
+      return Array.isArray(datos)
+        ? res.status(200).json({ ok: true, guardadas: guardadas.length })
+        : res.status(200).json({ ok: true, fila: guardadas[0] });
     }
 
     res.setHeader('Allow', 'GET, POST');

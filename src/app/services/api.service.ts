@@ -7,45 +7,34 @@ export interface FilaSesion { fecha: string; indice: number; disciplina?: string
 export interface FilaWod { fecha: string; texto: string; escalado?: string | null; }
 export interface FilaNota { semana: number; sensaciones?: string | null; sueno?: number | null; energia?: number | null; molestias?: string | null; }
 
-export interface Remoto { pesos: FilaPeso[]; sesiones: FilaSesion[]; wods: FilaWod[]; notas: FilaNota[]; }
+export interface FilaDia { fecha: string; descanso: boolean; nota?: string | null; }
+export interface FilaActividad {
+  strava_id: number; fecha: string; disciplina: string; sport_type?: string | null;
+  nombre?: string | null; metros: number; segundos: number;
+  desnivel?: number; calorias?: number | null; esfuerzo?: number | null;
+}
+
+export interface Remoto {
+  pesos: FilaPeso[]; sesiones: FilaSesion[]; wods: FilaWod[]; notas: FilaNota[];
+  dias?: FilaDia[]; actividades?: FilaActividad[];
+}
 
 const CLAVE_CODIGO = 'rutina703.codigo';
-const CLAVE_LOCAL = 'rutina703.modoLocal';
 
 function leerCodigo(): string | null {
   try { return localStorage.getItem(CLAVE_CODIGO); } catch { return null; }
 }
 
-function esModoLocal(): boolean {
-  try { return localStorage.getItem(CLAVE_LOCAL) === '1'; } catch { return false; }
-}
-
-function estadoInicial(): EstadoConexion {
-  if (esModoLocal()) return 'offline';   // eligió trabajar sin sincronizar
-  return leerCodigo() ? 'verificando' : 'sin-codigo';
-}
-
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   readonly codigo = signal<string | null>(leerCodigo());
-  readonly conexion = signal<EstadoConexion>(estadoInicial());
+  /**
+   * Sin código no se entra. Con un código ya guardado sí se entra aunque el
+   * servidor no responda: si no, una caída de red te deja afuera de tu propio
+   * plan. Lo que protege tus datos es el 401 del servidor, no esta pantalla.
+   */
+  readonly conexion = signal<EstadoConexion>(leerCodigo() ? 'verificando' : 'sin-codigo');
   readonly ultimoError = signal<string | null>(null);
-  readonly modoLocal = signal<boolean>(esModoLocal());
-
-  /** Trabajar solo en este navegador, sin backend. La decisión se recuerda. */
-  usarSoloLocal() {
-    try { localStorage.setItem(CLAVE_LOCAL, '1'); } catch { /* nada */ }
-    this.modoLocal.set(true);
-    this.conexion.set('offline');
-    this.ultimoError.set(null);
-  }
-
-  /** Volver a intentar la sincronización (cuando ya configuró el backend). */
-  reactivarSincronizacion() {
-    try { localStorage.removeItem(CLAVE_LOCAL); } catch { /* nada */ }
-    this.modoLocal.set(false);
-    this.conexion.set(this.codigo() ? 'verificando' : 'sin-codigo');
-  }
 
   /** true cuando hay backend configurado y respondiendo. */
   get activo() { return this.conexion() === 'conectado'; }
@@ -69,7 +58,6 @@ export class ApiService {
 
   /** Trae todo el estado remoto. null = no se pudo (sin código, offline o rechazado). */
   async cargar(): Promise<Remoto | null> {
-    if (this.modoLocal()) return null;                       // no molesta con el backend
     if (!this.codigo()) { this.conexion.set('sin-codigo'); return null; }
     try {
       const r = await fetch('/api/datos', { headers: this.cabeceras() });
