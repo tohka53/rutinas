@@ -97,17 +97,10 @@ export default async function handler(req, res) {
     if (u && /^https?:$/.test(u.protocol) && u.pathname === '/') urlBase = candidata;
   }
 
-  // La llave sí tiene que tener forma de llave: un valor pegado en el campo
-  // equivocado daria un error de Supabase difícil de interpretar.
-  if (!/^(sb_secret_|eyJ)/.test(SUPABASE_SECRET_KEY.trim())) {
-    return res.status(500).json({
-      error: 'Variables de entorno mal cargadas',
-      problemas: [
-        'SUPABASE_SECRET_KEY no tiene forma de llave de Supabase. Debe empezar ' +
-        'con sb_secret_ (Settings → API Keys → Secret keys).',
-      ],
-    });
-  }
+  // A propósito NO se valida el formato de la llave. Supabase tiene llaves
+  // legacy (JWT), las nuevas sb_secret_, y puede cambiarlas cuando quiera:
+  // adivinar el formato solo sirve para rechazar llaves que sí funcionan.
+  // Quien decide si la llave vale es Supabase, y su respuesta se traduce abajo.
 
   const codigo = req.headers['x-codigo'];
   if (!codigoValido(Array.isArray(codigo) ? codigo[0] : codigo, CODIGO_ACCESO)) {
@@ -159,8 +152,31 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'Método no permitido' });
   } catch (e) {
-    // El mensaje puede traer detalle de Postgres; útil para vos, y la ruta ya
-    // está detrás del código de acceso.
-    return res.status(502).json({ error: 'Fallo hablando con Supabase', detalle: String(e.message ?? e) });
+    const detalle = String(e?.message ?? e);
+
+    // Supabase rechaza la llave: es el caso que antes intentaba adivinar una
+    // expresión regular sobre el formato. Mejor preguntarle a Supabase.
+    if (/\b(401|403)\b/.test(detalle) || /invalid.*(api key|jwt)/i.test(detalle)) {
+      return res.status(502).json({
+        error: 'Supabase no acepta la llave',
+        detalle:
+          'SUPABASE_SECRET_KEY existe pero Supabase la rechaza. Suele ser la llave ' +
+          'equivocada: tiene que ser la de Settings → API Keys → Secret keys ' +
+          '(no la publishable, que no puede leer estas tablas por RLS). ' +
+          'Actualizala en Vercel y volvé a desplegar.',
+      });
+    }
+
+    // Las tablas no existen: falta correr la migración.
+    if (/does not exist|PGRST205|relation .* does not exist/i.test(detalle)) {
+      return res.status(502).json({
+        error: 'Faltan las tablas en Supabase',
+        detalle:
+          'Corré supabase/migrations/0001_rutina_703.sql en el SQL Editor del proyecto.',
+      });
+    }
+
+    // Resto: se devuelve tal cual. La ruta ya está detrás del código de acceso.
+    return res.status(502).json({ error: 'Fallo hablando con Supabase', detalle });
   }
 }
