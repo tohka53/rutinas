@@ -5,10 +5,15 @@
 // copia la llave y le pega directo a la API REST. Acá la llave vive en el
 // servidor y el código se valida antes de tocar la base.
 //
-// Variables de entorno requeridas (Vercel → Settings → Environment Variables):
-//   SUPABASE_URL         https://mlpdqxpdvxhpsgspkccn.supabase.co
-//   SUPABASE_SECRET_KEY  sb_secret_...   (Settings → API Keys → Secret keys)
-//   CODIGO_ACCESO        el código que escribís al entrar
+// Variables de entorno (Vercel → Settings → Environment Variables):
+//   SUPABASE_SECRET_KEY  sb_secret_...   (Settings → API Keys → Secret keys)  [requerida]
+//   CODIGO_ACCESO        el código que escribís al entrar                     [requerida]
+//   SUPABASE_URL         opcional; si no está o es inválida se usa la de abajo
+//
+// La URL del proyecto no es un secreto: viaja en el bundle de cualquier app de
+// Supabase en el navegador. Ponerla acá evita una variable de entorno más que
+// configurar mal. Lo secreto es la llave, y esa nunca sale del servidor.
+const URL_POR_DEFECTO = 'https://mlpdqxpdvxhpsgspkccn.supabase.co';
 
 const TABLAS = {
   peso: { tabla: 'rutina_peso', pk: ['fecha'], orden: 'fecha.asc' },
@@ -69,42 +74,39 @@ function supabase(url, key) {
 export default async function handler(req, res) {
   const { SUPABASE_URL, SUPABASE_SECRET_KEY, CODIGO_ACCESO } = process.env;
 
-  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !CODIGO_ACCESO) {
+  // Solo son obligatorias las dos que de verdad son secretas.
+  if (!SUPABASE_SECRET_KEY || !CODIGO_ACCESO) {
     return res.status(500).json({
       error: 'Faltan variables de entorno en Vercel',
       faltan: [
-        !SUPABASE_URL && 'SUPABASE_URL',
         !SUPABASE_SECRET_KEY && 'SUPABASE_SECRET_KEY',
         !CODIGO_ACCESO && 'CODIGO_ACCESO',
       ].filter(Boolean),
     });
   }
 
-  // Es fácil pegar el valor equivocado en la variable equivocada, y sin esto el
-  // error sale recién al armar la consulta, ya disfrazado de fallo de Supabase.
-  // No se devuelve el valor recibido: podría ser una llave pegada por error.
-  const problemas = [];
-  let url;
-  try { url = new URL(SUPABASE_URL.trim()); } catch { url = null; }
-  if (!url || !/^https?:$/.test(url.protocol)) {
-    problemas.push(
-      'SUPABASE_URL no es una URL. Debe ser https://<project-id>.supabase.co ' +
-      '(Settings → Data API → Project URL).'
-    );
-  } else if (url.pathname !== '/') {
-    problemas.push(
-      'SUPABASE_URL lleva una ruta al final. Debe terminar en .supabase.co, ' +
-      'sin /rest/v1 ni nada después.'
-    );
+  // La URL es opcional. Si falta, o si trae algo que no es una URL (pasa al
+  // pegar un valor en el campo equivocado), se ignora y se usa la del proyecto.
+  // Es pública, así que no hay nada que proteger; lo que no sirve es arrancar
+  // con una URL rota.
+  let urlBase = URL_POR_DEFECTO;
+  const candidata = (SUPABASE_URL ?? '').trim();
+  if (candidata) {
+    let u = null;
+    try { u = new URL(candidata); } catch { u = null; }
+    if (u && /^https?:$/.test(u.protocol) && u.pathname === '/') urlBase = candidata;
   }
+
+  // La llave sí tiene que tener forma de llave: un valor pegado en el campo
+  // equivocado daria un error de Supabase difícil de interpretar.
   if (!/^(sb_secret_|eyJ)/.test(SUPABASE_SECRET_KEY.trim())) {
-    problemas.push(
-      'SUPABASE_SECRET_KEY no tiene forma de llave de Supabase. Debe empezar ' +
-      'con sb_secret_ (Settings → API Keys → Secret keys).'
-    );
-  }
-  if (problemas.length) {
-    return res.status(500).json({ error: 'Variables de entorno mal cargadas', problemas });
+    return res.status(500).json({
+      error: 'Variables de entorno mal cargadas',
+      problemas: [
+        'SUPABASE_SECRET_KEY no tiene forma de llave de Supabase. Debe empezar ' +
+        'con sb_secret_ (Settings → API Keys → Secret keys).',
+      ],
+    });
   }
 
   const codigo = req.headers['x-codigo'];
@@ -112,7 +114,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Código incorrecto' });
   }
 
-  const db = supabase(SUPABASE_URL, SUPABASE_SECRET_KEY);
+  const db = supabase(urlBase, SUPABASE_SECRET_KEY);
 
   try {
     // ------------------------------------------------ GET: traer todo el estado
