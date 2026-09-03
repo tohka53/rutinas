@@ -67,6 +67,11 @@ export class ApiService {
         this.ultimoError.set('El código no es correcto.');
         return null;
       }
+      if (r.status === 500 && Array.isArray(cuerpo.problemas)) {
+        this.conexion.set('offline');
+        this.ultimoError.set(cuerpo.problemas.join(' ') + ' Corregila y volvé a desplegar.');
+        return null;
+      }
       if (r.status === 500 && Array.isArray(cuerpo.faltan)) {
         this.conexion.set('offline');
         this.ultimoError.set(

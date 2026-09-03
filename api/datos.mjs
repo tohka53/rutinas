@@ -80,6 +80,33 @@ export default async function handler(req, res) {
     });
   }
 
+  // Es fácil pegar el valor equivocado en la variable equivocada, y sin esto el
+  // error sale recién al armar la consulta, ya disfrazado de fallo de Supabase.
+  // No se devuelve el valor recibido: podría ser una llave pegada por error.
+  const problemas = [];
+  let url;
+  try { url = new URL(SUPABASE_URL.trim()); } catch { url = null; }
+  if (!url || !/^https?:$/.test(url.protocol)) {
+    problemas.push(
+      'SUPABASE_URL no es una URL. Debe ser https://<project-id>.supabase.co ' +
+      '(Settings → Data API → Project URL).'
+    );
+  } else if (url.pathname !== '/') {
+    problemas.push(
+      'SUPABASE_URL lleva una ruta al final. Debe terminar en .supabase.co, ' +
+      'sin /rest/v1 ni nada después.'
+    );
+  }
+  if (!/^(sb_secret_|eyJ)/.test(SUPABASE_SECRET_KEY.trim())) {
+    problemas.push(
+      'SUPABASE_SECRET_KEY no tiene forma de llave de Supabase. Debe empezar ' +
+      'con sb_secret_ (Settings → API Keys → Secret keys).'
+    );
+  }
+  if (problemas.length) {
+    return res.status(500).json({ error: 'Variables de entorno mal cargadas', problemas });
+  }
+
   const codigo = req.headers['x-codigo'];
   if (!codigoValido(Array.isArray(codigo) ? codigo[0] : codigo, CODIGO_ACCESO)) {
     return res.status(401).json({ error: 'Código incorrecto' });
