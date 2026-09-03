@@ -10,16 +10,42 @@ export interface FilaNota { semana: number; sensaciones?: string | null; sueno?:
 export interface Remoto { pesos: FilaPeso[]; sesiones: FilaSesion[]; wods: FilaWod[]; notas: FilaNota[]; }
 
 const CLAVE_CODIGO = 'rutina703.codigo';
+const CLAVE_LOCAL = 'rutina703.modoLocal';
 
 function leerCodigo(): string | null {
   try { return localStorage.getItem(CLAVE_CODIGO); } catch { return null; }
 }
 
+function esModoLocal(): boolean {
+  try { return localStorage.getItem(CLAVE_LOCAL) === '1'; } catch { return false; }
+}
+
+function estadoInicial(): EstadoConexion {
+  if (esModoLocal()) return 'offline';   // eligió trabajar sin sincronizar
+  return leerCodigo() ? 'verificando' : 'sin-codigo';
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   readonly codigo = signal<string | null>(leerCodigo());
-  readonly conexion = signal<EstadoConexion>(leerCodigo() ? 'verificando' : 'sin-codigo');
+  readonly conexion = signal<EstadoConexion>(estadoInicial());
   readonly ultimoError = signal<string | null>(null);
+  readonly modoLocal = signal<boolean>(esModoLocal());
+
+  /** Trabajar solo en este navegador, sin backend. La decisión se recuerda. */
+  usarSoloLocal() {
+    try { localStorage.setItem(CLAVE_LOCAL, '1'); } catch { /* nada */ }
+    this.modoLocal.set(true);
+    this.conexion.set('offline');
+    this.ultimoError.set(null);
+  }
+
+  /** Volver a intentar la sincronización (cuando ya configuró el backend). */
+  reactivarSincronizacion() {
+    try { localStorage.removeItem(CLAVE_LOCAL); } catch { /* nada */ }
+    this.modoLocal.set(false);
+    this.conexion.set(this.codigo() ? 'verificando' : 'sin-codigo');
+  }
 
   /** true cuando hay backend configurado y respondiendo. */
   get activo() { return this.conexion() === 'conectado'; }
@@ -43,6 +69,7 @@ export class ApiService {
 
   /** Trae todo el estado remoto. null = no se pudo (sin código, offline o rechazado). */
   async cargar(): Promise<Remoto | null> {
+    if (this.modoLocal()) return null;                       // no molesta con el backend
     if (!this.codigo()) { this.conexion.set('sin-codigo'); return null; }
     try {
       const r = await fetch('/api/datos', { headers: this.cabeceras() });
