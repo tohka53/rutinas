@@ -57,6 +57,16 @@ import { StorageService } from './services/storage.service';
       </nav>
     </header>
 
+    @if (api.ultimoError() && api.conexion() !== 'sin-codigo') {
+      <div class="wrap">
+        <div class="aviso-conexion">
+          <strong>No se está guardando en la nube.</strong>
+          <span>{{ api.ultimoError() }}</span>
+          <button (click)="store.sincronizar()">Reintentar</button>
+        </div>
+      </div>
+    }
+
     <main class="wrap"><router-outlet /></main>
 
     <footer class="wrap dim">
@@ -99,6 +109,14 @@ import { StorageService } from './services/storage.service';
     @keyframes late { 50% { opacity: .25; } }
     .badge { background: var(--warn); color: #2a1f00; border-radius: 99px; padding: 0 .32rem;
              font-weight: 700; font-size: .68rem; }
+
+    .aviso-conexion { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+      margin-top: 1rem; padding: .6rem .8rem; border-radius: var(--r);
+      background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); font-size: .84rem; }
+    .aviso-conexion strong { color: var(--warn); flex: 0 0 auto; }
+    .aviso-conexion span { color: var(--muted); flex: 1; min-width: 200px; }
+    .aviso-conexion button { flex: 0 0 auto; }
 
     .puerta { position: fixed; inset: 0; z-index: 100; background: var(--bg);
               display: grid; place-items: center; padding: 1rem; }

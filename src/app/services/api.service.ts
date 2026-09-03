@@ -46,24 +46,52 @@ export class ApiService {
     if (!this.codigo()) { this.conexion.set('sin-codigo'); return null; }
     try {
       const r = await fetch('/api/datos', { headers: this.cabeceras() });
+
+      // Si vuelve HTML en vez de JSON, la función no existe: el navegador recibió
+      // el index.html del SPA. Suele ser `ng serve` (sin funciones) o un Root
+      // Directory mal puesto en Vercel, que deja api/ fuera del despliegue.
+      const tipo = r.headers.get('content-type') ?? '';
+      if (!tipo.includes('application/json')) {
+        this.conexion.set('offline');
+        this.ultimoError.set(
+          'La ruta /api/datos no devolvió JSON, así que la función no está desplegada. ' +
+          'Con `npm start` es lo esperado. En Vercel, revisá que Root Directory sea "rutinas".'
+        );
+        return null;
+      }
+
+      const cuerpo = await r.json().catch(() => ({} as any));
+
       if (r.status === 401) {
         this.conexion.set('rechazado');
         this.ultimoError.set('El código no es correcto.');
         return null;
       }
+      if (r.status === 500 && Array.isArray(cuerpo.faltan)) {
+        this.conexion.set('offline');
+        this.ultimoError.set(
+          `Faltan variables de entorno en Vercel: ${cuerpo.faltan.join(', ')}. ` +
+          'Agregalas y volvé a desplegar — las variables nuevas no aplican al deploy anterior.'
+        );
+        return null;
+      }
+      if (r.status === 502) {
+        this.conexion.set('offline');
+        this.ultimoError.set(`Supabase rechazó la consulta: ${cuerpo.detalle ?? 'sin detalle'}`);
+        return null;
+      }
       if (!r.ok) {
-        const cuerpo = await r.json().catch(() => ({}));
         this.conexion.set('offline');
         this.ultimoError.set(cuerpo.error ?? `Error ${r.status}`);
         return null;
       }
+
       this.conexion.set('conectado');
       this.ultimoError.set(null);
-      return await r.json();
-    } catch {
-      // Sin red, o corriendo con `ng serve` sin las funciones de Vercel.
+      return cuerpo as Remoto;
+    } catch (e) {
       this.conexion.set('offline');
-      this.ultimoError.set('No hay conexión con el servidor. Se guarda solo en este navegador.');
+      this.ultimoError.set(`No se pudo llegar al servidor (${String((e as Error)?.message ?? e)}).`);
       return null;
     }
   }
