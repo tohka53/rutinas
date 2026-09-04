@@ -47,7 +47,40 @@ El indicador en la barra de navegación dice en qué modo estás.
 
 3. Redeploy. Al abrir la app te pide el código una sola vez por dispositivo.
 
-Ninguno de esos tres valores va en el repo.
+`SUPABASE_URL` es opcional: si falta, se usa la del proyecto que está en el código
+(no es un secreto, viaja en el bundle de cualquier app de Supabase).
+
+## Conectar Strava
+
+Las actividades entran solas una vez conectado. Se configura una vez:
+
+1. Creá una aplicación en [strava.com/settings/api](https://www.strava.com/settings/api):
+
+   | Campo | Valor |
+   |---|---|
+   | Application Name | Rutina 70.3 |
+   | Category | Training |
+   | Website | `https://rutinas-two.vercel.app` |
+   | **Authorization Callback Domain** | `rutinas-two.vercel.app` |
+
+   Sin `https://` ni barras en el callback domain — solo el dominio.
+
+2. Agregá dos variables más en Vercel:
+
+   | Variable | Dónde sale |
+   |---|---|
+   | `STRAVA_CLIENT_ID` | de la misma página de Strava |
+   | `STRAVA_CLIENT_SECRET` | idem (hay que darle *Show*) |
+
+3. Corré `supabase/migrations/0003_strava.sql`, redesplegá, y en **Cumplimiento**
+   tocá **Conectar Strava**. Autorizás una vez y listo.
+
+El token de Strava **no** va en Vercel: se guarda en `rutina_config` de tu Supabase.
+Son dos variables menos que configurar, y si Strava rota el refresh token al
+renovarlo, la fila se reescribe sola — una variable de entorno no puede.
+
+Después de eso la app sincroniza sola al abrirla, con tope de una vez cada 6 horas
+para no agotar el límite de peticiones de Strava. También hay un botón manual.
 
 ## Desplegarlo en Vercel
 

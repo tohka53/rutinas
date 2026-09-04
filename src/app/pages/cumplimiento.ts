@@ -3,6 +3,7 @@ import { DecimalPipe } from '@angular/common';
 import { PlanService, fechaCorta } from '../services/plan.service';
 import { StorageService } from '../services/storage.service';
 import { ApiService } from '../services/api.service';
+import { StravaService } from '../services/strava.service';
 import { SEMANA_BASE } from '../data/sesiones.data';
 import {
   evaluarDia, totalizar, pct, duracion, ICONO,
@@ -19,16 +20,57 @@ import {
       descanso sale del cálculo — descansar a propósito no es incumplir.
     </p>
 
-    @if (!store.actividades().length) {
-      <div class="card vacio">
-        <strong>Todavía no hay actividades importadas.</strong>
-        <p class="muted" style="margin:.4rem 0 0">
-          @if (api.conexion() === 'conectado') {
-            Corré <code>scripts/importar-strava.mjs</code> para traer tu historial.
-          } @else {
-            Esta vista necesita la sincronización con Supabase activa. Mientras tanto
-            podés marcar las sesiones a mano en <strong>Semana</strong>.
+    <div class="card strava" [class.vacio]="strava.estado() !== 'conectado'">
+      <div class="cab">
+        <div>
+          <strong>
+            @switch (strava.estado()) {
+              @case ('conectado') { Strava conectado }
+              @case ('desconectado') { Strava sin conectar }
+              @case ('sin-configurar') { Falta configurar Strava en Vercel }
+              @default { Comprobando Strava… }
+            }
+          </strong>
+          <span class="dim">
+            @switch (strava.estado()) {
+              @case ('conectado') {
+                @if (strava.ultimoSync()) {
+                  Última sincronización: {{ haceCuanto(strava.ultimoSync()!) }}.
+                  Se actualiza sola al abrir la app, máximo cada 6 horas.
+                } @else {
+                  Todavía no se ha sincronizado nada.
+                }
+              }
+              @case ('desconectado') {
+                Autorizá una vez y desde ahí las actividades entran solas.
+              }
+              @case ('sin-configurar') {
+                Faltan estas variables: {{ strava.faltan().join(', ') }}.
+                Se crean en strava.com/settings/api.
+              }
+              @default { … }
+            }
+          </span>
+        </div>
+        <div class="acciones">
+          @if (strava.estado() === 'desconectado') {
+            <button class="primary" (click)="strava.conectar()">Conectar Strava</button>
           }
+          @if (strava.estado() === 'conectado') {
+            <button (click)="sincronizar()" [disabled]="strava.sincronizando()">
+              {{ strava.sincronizando() ? 'Sincronizando…' : 'Sincronizar ahora' }}
+            </button>
+          }
+        </div>
+      </div>
+      @if (strava.mensaje()) { <div class="nota">{{ strava.mensaje() }}</div> }
+    </div>
+
+    @if (!store.actividades().length && strava.estado() === 'conectado') {
+      <div class="card vacio">
+        <strong>Conectado, pero sin actividades todavía.</strong>
+        <p class="muted" style="margin:.4rem 0 0">
+          Tocá <em>Sincronizar ahora</em>. La primera vez trae hasta 13 meses de historial.
         </p>
       </div>
     }
@@ -138,6 +180,10 @@ import {
     .resumen .n { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; display: block; line-height: 1; }
     .resumen .dim { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; }
     .vacio { border-color: color-mix(in srgb, var(--bici) 40%, transparent); }
+    .strava { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+    .strava.vacio { border-color: color-mix(in srgb, var(--bici) 40%, transparent); }
+    .strava strong { display: block; font-size: .92rem; margin-bottom: .15rem; }
+    .strava .dim { display: block; font-size: .82rem; line-height: 1.45; }
     .vacio code { font-family: var(--mono); font-size: .82rem; background: var(--surface-2);
                   padding: .1rem .3rem; border-radius: 4px; }
     .dia.hoy { border-color: color-mix(in srgb, var(--nado) 45%, transparent); }
@@ -157,9 +203,33 @@ export class CumplimientoPage {
   plan = inject(PlanService);
   store = inject(StorageService);
   api = inject(ApiService);
+  strava = inject(StravaService);
   fechaCorta = fechaCorta;
   dur = duracion;
   sem = this.plan.semanaActual;
+
+  constructor() {
+    // Al abrir la vista se sincroniza sola, con tope de una vez cada 6 horas.
+    void this.strava.sincronizarSiHaceFalta().then(hubo => {
+      if (hubo) void this.store.sincronizar();
+    });
+  }
+
+  async sincronizar() {
+    const n = await this.strava.sincronizar();
+    if (n !== null) await this.store.sincronizar();   // recarga lo que entró
+  }
+
+  /** "hace 3 horas", "hace 2 días". Mejor que una fecha cruda para esto. */
+  haceCuanto(iso: string): string {
+    const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (min < 2) return 'recién';
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.round(min / 60);
+    if (h < 24) return `hace ${h} h`;
+    const d = Math.round(h / 24);
+    return `hace ${d} día${d === 1 ? '' : 's'}`;
+  }
 
   icono(d: string) { return ICONO[d] ?? '•'; }
   etiqueta(v: any) { return ETIQUETA_VEREDICTO[v as keyof typeof ETIQUETA_VEREDICTO]; }
