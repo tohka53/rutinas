@@ -1,18 +1,28 @@
 // Conexión con Strava: autorización, refresco de token y sincronización.
 //
-// El token vive en Supabase (rutina_config), no en variables de entorno. Así
-// son dos variables menos que configurar, y si Strava rota el refresh token al
-// renovarlo, la fila se reescribe sola — una variable de entorno no puede.
+// Dónde viven las credenciales
+// ----------------------------
+// El client id y el client secret de la aplicación de Strava se guardan en
+// Supabase (rutina_config), no en variables de entorno de Vercel. Se pegan una
+// sola vez desde la propia app: Cumplimiento → Conectar Strava.
 //
-// Variables de entorno requeridas, además de las de /api/datos:
-//   STRAVA_CLIENT_ID      de strava.com/settings/api
-//   STRAVA_CLIENT_SECRET  de la misma página
+// La razón es práctica. Agregar variables en Vercel obliga a pasar por el panel
+// o la CLI y a volver a desplegar, y ahí es donde se rompe: un valor pegado en
+// el campo equivocado deja el sitio mudo hasta el próximo deploy. Un formulario
+// escribe en la base y hace efecto en el acto, sin desplegar nada. Es el mismo
+// criterio que ya se usaba para el token.
+//
+// Si existen STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET en el entorno se usan como
+// respaldo, para no romperle nada a quien ya las tenga puestas. Gana la base,
+// porque es la única que se puede corregir sin desplegar.
 //
 // Rutas (todas bajo /api/strava):
-//   ?accion=estado    → si está conectado y cuándo fue el último sync
-//   ?accion=conectar  → redirige a Strava para autorizar (una sola vez)
-//   ?code=...         → callback de Strava; guarda los tokens y vuelve a la app
-//   ?accion=sync      → trae lo nuevo y lo guarda en rutina_actividad
+//   ?accion=estado       → si está configurado, si está conectado, último sync
+//   ?accion=configurar   → POST {clientId, clientSecret}; guarda las credenciales
+//   ?accion=conectar     → devuelve la URL de autorización de Strava
+//   ?code=...            → callback de Strava; guarda los tokens y vuelve a la app
+//   ?accion=sync         → trae lo nuevo y lo guarda en rutina_actividad
+//   ?accion=desconectar  → olvida los tokens (las credenciales quedan)
 
 const URL_POR_DEFECTO = 'https://mlpdqxpdvxhpsgspkccn.supabase.co';
 const STRAVA_API = 'https://www.strava.com/api/v3';
@@ -70,6 +80,23 @@ function supabase(url, key) {
   };
 }
 
+/**
+ * Credenciales de la aplicación de Strava. Primero la base (se corrige desde la
+ * app), después el entorno (respaldo para quien ya las tenía en Vercel).
+ */
+async function credenciales(db) {
+  const [id, secret] = await Promise.all([
+    db.config('strava_client_id'),
+    db.config('strava_client_secret'),
+  ]);
+  // `||` y no `??`: una fila vaciada guarda '' , no null, y eso tambien significa
+  // "no hay credencial" — con `??` una fila en blanco taparia el respaldo.
+  return {
+    clientId: String(id || process.env.STRAVA_CLIENT_ID || '').trim(),
+    clientSecret: String(secret || process.env.STRAVA_CLIENT_SECRET || '').trim(),
+  };
+}
+
 /** Devuelve un access token válido, renovándolo si hace falta. */
 async function accessToken(db, clientId, clientSecret) {
   const [access, expira, refresh] = await Promise.all([
@@ -119,23 +146,19 @@ function aFila(a) {
   };
 }
 
+function leerCuerpo(req) {
+  if (!req.body) return {};
+  if (typeof req.body === 'string') { try { return JSON.parse(req.body); } catch { return {}; } }
+  return req.body;
+}
+
 export default async function handler(req, res) {
-  const {
-    SUPABASE_URL, SUPABASE_SECRET_KEY, CODIGO_ACCESO,
-    STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET,
-  } = process.env;
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY, CODIGO_ACCESO } = process.env;
 
   if (!SUPABASE_SECRET_KEY || !CODIGO_ACCESO) {
     return res.status(500).json({
       error: 'Faltan variables de entorno en Vercel',
       faltan: [!SUPABASE_SECRET_KEY && 'SUPABASE_SECRET_KEY', !CODIGO_ACCESO && 'CODIGO_ACCESO'].filter(Boolean),
-    });
-  }
-  if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
-    return res.status(500).json({
-      error: 'Falta configurar Strava',
-      faltan: [!STRAVA_CLIENT_ID && 'STRAVA_CLIENT_ID', !STRAVA_CLIENT_SECRET && 'STRAVA_CLIENT_SECRET'].filter(Boolean),
-      ayuda: 'Creá una aplicación en strava.com/settings/api y agregá las dos variables en Vercel.',
     });
   }
 
@@ -159,6 +182,10 @@ export default async function handler(req, res) {
     // Llega desde Strava después de autorizar. No lleva código de acceso
     // porque lo abre Strava, no la app: la defensa es el `state` de un solo uso.
     if (code) {
+      const { clientId, clientSecret } = await credenciales(db);
+      if (!clientId || !clientSecret) {
+        return res.status(409).send('Strava no está configurado. Volvé a la app y pegá el Client ID y el Client Secret.');
+      }
       const estadoRecibido = url.searchParams.get('state');
       const estadoEsperado = await db.config('strava_oauth_state');
       if (!estadoEsperado || estadoRecibido !== estadoEsperado) {
@@ -170,7 +197,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET,
+          client_id: clientId, client_secret: clientSecret,
           grant_type: 'authorization_code', code,
         }),
       });
@@ -192,26 +219,86 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Código incorrecto' });
     }
 
+    // ---------------------------------------------------------- configurar
+    // Guarda las credenciales de la aplicación de Strava. El secret entra y no
+    // vuelve a salir: ninguna respuesta de este archivo lo incluye.
+    if (accion === 'configurar') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return res.status(405).json({ error: 'configurar se manda por POST' });
+      }
+      const cuerpo = leerCuerpo(req);
+      const clientId = String(cuerpo.clientId ?? '').trim();
+      const clientSecret = String(cuerpo.clientSecret ?? '').trim();
+
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({ error: 'Faltan el Client ID o el Client Secret.' });
+      }
+      // El Client ID de Strava es un número y viaja en la URL de autorización.
+      // Es lo único que vale la pena validar: si no es numérico, casi siempre es
+      // que los dos campos van al revés.
+      if (!/^\d+$/.test(clientId)) {
+        return res.status(400).json({
+          error: /^\d+$/.test(clientSecret)
+            ? 'Parece que los campos están al revés: el Client ID es el número corto.'
+            : 'El Client ID de Strava es un número (ej. 123456).',
+        });
+      }
+
+      // Si cambia la aplicación, los tokens viejos ya no sirven: eran de la
+      // aplicación anterior. Se limpian para que no quede un "conectado" falso.
+      const anterior = await db.config('strava_client_id');
+      const cambio = anterior && anterior !== clientId;
+      await db.guardarConfig({
+        strava_client_id: clientId,
+        strava_client_secret: clientSecret,
+        ...(cambio ? { strava_access_token: '', strava_refresh_token: '', strava_expira_en: '', strava_atleta: '' } : {}),
+      });
+      return res.status(200).json({ ok: true, configurado: true, reconectar: !!cambio });
+    }
+
     // --------------------------------------------------------------- estado
     if (accion === 'estado') {
-      const [refresh, ultimo, atleta] = await Promise.all([
+      const [{ clientId, clientSecret }, refresh, ultimo, atleta] = await Promise.all([
+        credenciales(db),
         db.config('strava_refresh_token'),
         db.config('strava_ultimo_sync'),
         db.config('strava_atleta'),
       ]);
       return res.status(200).json({
-        conectado: !!refresh,
+        configurado: !!(clientId && clientSecret),
+        conectado: !!(clientId && clientSecret && refresh),
         ultimoSync: ultimo || null,
         atleta: atleta || null,
+        // Para mostrar en la app el valor exacto que pide Strava en
+        // "Authorization Callback Domain", sin que haya que adivinarlo.
+        dominio: req.headers.host ?? '',
       });
+    }
+
+    // ------------------------------------------------------------ desconectar
+    if (accion === 'desconectar') {
+      await db.guardarConfig({
+        strava_access_token: '', strava_refresh_token: '',
+        strava_expira_en: '', strava_atleta: '', strava_oauth_state: '',
+      });
+      return res.status(200).json({ ok: true, conectado: false });
     }
 
     // ------------------------------------------------------------- conectar
     if (accion === 'conectar') {
+      const { clientId, clientSecret } = await credenciales(db);
+      if (!clientId || !clientSecret) {
+        return res.status(409).json({
+          error: 'Falta configurar Strava',
+          configurado: false,
+          ayuda: 'Pegá el Client ID y el Client Secret de tu aplicación de Strava.',
+        });
+      }
       const estado = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
       await db.guardarConfig({ strava_oauth_state: estado });
       const auth = new URL(`${STRAVA_OAUTH}/authorize`);
-      auth.searchParams.set('client_id', STRAVA_CLIENT_ID);
+      auth.searchParams.set('client_id', clientId);
       auth.searchParams.set('redirect_uri', `${origen}/api/strava`);
       auth.searchParams.set('response_type', 'code');
       auth.searchParams.set('approval_prompt', 'auto');
@@ -222,8 +309,12 @@ export default async function handler(req, res) {
 
     // ----------------------------------------------------------------- sync
     if (accion === 'sync') {
-      const token = await accessToken(db, STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET);
-      if (!token) return res.status(409).json({ error: 'Strava no está conectado todavía' });
+      const { clientId, clientSecret } = await credenciales(db);
+      if (!clientId || !clientSecret) {
+        return res.status(409).json({ error: 'Falta configurar Strava', configurado: false });
+      }
+      const token = await accessToken(db, clientId, clientSecret);
+      if (!token) return res.status(409).json({ error: 'Strava no está conectado todavía', configurado: true });
 
       // Incremental: solo lo posterior al último sync, con 2 días de solape por
       // si una actividad se subió tarde o se editó después.
@@ -258,7 +349,10 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, guardadas, porDisciplina, desde: after });
     }
 
-    return res.status(400).json({ error: 'acción inválida', validas: ['estado', 'conectar', 'sync'] });
+    return res.status(400).json({
+      error: 'acción inválida',
+      validas: ['estado', 'configurar', 'conectar', 'sync', 'desconectar'],
+    });
   } catch (e) {
     const detalle = String(e?.message ?? e);
     if (/\b(401|403)\b/.test(detalle) && /supabase|rutina_/i.test(detalle)) {

@@ -1,10 +1,16 @@
 # Rutina 70.3 — Miguel
 
-Dashboard de entrenamiento y nutrición hacia el **Gran Jaguar 70.3** (Flores, Petén — 28 nov 2026),
-con el triatlón olímpico del 8 de noviembre como carrera preparatoria.
+Panel de entrenamiento y nutrición para un macrociclo de 60 semanas
+(7 sep 2026 → 31 oct 2027) con cuatro carreras:
 
-Angular 21 standalone, sin dependencias externas más allá del framework. Todo el progreso se
-guarda en `localStorage` del navegador.
+| Semana | Fecha | Carrera |
+|---|---|---|
+| 9 | 8 nov 2026 | Triatlón olímpico (primera vez sobre los tres deportes seguidos) |
+| 22 | 7 feb 2027 | Segundo olímpico — El Salvador, para probar sensaciones |
+| 32 | ~18 abr 2027 | **Primer 70.3** — Monterrey |
+| 59 | ~24 oct 2027 | Segundo 70.3 — Miami / Nueva York |
+
+Angular 21 standalone, sin dependencias más allá del framework.
 
 ## Correrlo
 
@@ -18,41 +24,42 @@ local (todo en `localStorage`). Para probar con backend: `npx vercel dev`.
 
 ## Dónde se guarda el progreso
 
-Peso, sesiones marcadas, WOD y notas semanales viven en **Supabase**, en el proyecto
-`AppCompe`. Las cuatro tablas llevan prefijo `rutina_` y no tocan nada de lo que ya
-existía ahí.
+Peso, sesiones marcadas, WOD, notas, comidas y actividades viven en **Supabase**,
+en el proyecto `AppCompe`. Las tablas llevan prefijo `rutina_` y no tocan nada de
+lo que ya existía ahí.
 
-El navegador **nunca** ve las llaves de Supabase. La app le pega a `/api/datos`, una
-función serverless que valida el código de acceso y recién ahí habla con la base
-usando la secret key desde variables de entorno:
+El navegador **nunca** ve las llaves de Supabase. La app le pega a `/api/datos`,
+una función serverless que valida el código de acceso y recién ahí habla con la
+base usando la secret key desde variables de entorno:
 
 ```
 Angular ──fetch + header x-codigo──▶ /api/datos ──secret key──▶ Supabase (RLS deny-all)
 ```
 
-`localStorage` sigue existiendo, pero como caché: si el servidor está caído, el dato
-se guarda igual y queda en una cola que se vacía sola cuando vuelve la conexión.
-El indicador en la barra de navegación dice en qué modo estás.
+`localStorage` sigue existiendo, pero como caché: si el servidor está caído, el
+dato se guarda igual y queda en una cola que se vacía sola cuando vuelve la
+conexión. El indicador en la barra de navegación dice en qué modo estás.
 
 ### Puesta en marcha
 
-1. Corré `supabase/migrations/0001_rutina_703.sql` en el SQL Editor de Supabase.
-2. En Vercel → Settings → Environment Variables, agregá las tres:
+1. Corré en el SQL Editor de Supabase, en orden:
+   `supabase/migrations/0001_rutina_703.sql`, `0002_cumplimiento.sql`, `0003_strava.sql`.
+2. En Vercel → Settings → Environment Variables, agregá dos:
 
    | Variable | Dónde sale |
    |---|---|
-   | `SUPABASE_URL` | `https://<project-id>.supabase.co` |
    | `SUPABASE_SECRET_KEY` | Settings → API Keys → Secret keys (`sb_secret_…`) |
    | `CODIGO_ACCESO` | El código que escribís al entrar |
 
 3. Redeploy. Al abrir la app te pide el código una sola vez por dispositivo.
 
-`SUPABASE_URL` es opcional: si falta, se usa la del proyecto que está en el código
-(no es un secreto, viaja en el bundle de cualquier app de Supabase).
+`SUPABASE_URL` es opcional: si falta, se usa la del proyecto que está en el
+código (no es un secreto, viaja en el bundle de cualquier app de Supabase).
 
 ## Conectar Strava
 
-Las actividades entran solas una vez conectado. Se configura una vez:
+Todo se hace desde la app, en **Cumplimiento**. No hay que tocar Vercel ni
+volver a desplegar.
 
 1. Creá una aplicación en [strava.com/settings/api](https://www.strava.com/settings/api):
 
@@ -63,24 +70,37 @@ Las actividades entran solas una vez conectado. Se configura una vez:
    | Website | `https://rutinas-two.vercel.app` |
    | **Authorization Callback Domain** | `rutinas-two.vercel.app` |
 
-   Sin `https://` ni barras en el callback domain — solo el dominio.
+   Sin `https://` ni barras en el callback domain — solo el dominio. La propia
+   app te muestra el valor exacto que corresponde al dominio desde el que la
+   estás abriendo.
 
-2. Agregá dos variables más en Vercel:
+2. Pegá el **Client ID** y el **Client Secret** en el formulario de Cumplimiento
+   y tocá *Guardar y conectar*. Autorizás una vez en Strava y listo.
 
-   | Variable | Dónde sale |
-   |---|---|
-   | `STRAVA_CLIENT_ID` | de la misma página de Strava |
-   | `STRAVA_CLIENT_SECRET` | idem (hay que darle *Show*) |
+Las credenciales y el token viven en `rutina_config`, en tu Supabase — no en
+variables de entorno de Vercel. Dos razones:
 
-3. Corré `supabase/migrations/0003_strava.sql`, redesplegá, y en **Cumplimiento**
-   tocá **Conectar Strava**. Autorizás una vez y listo.
+- Una variable de entorno obliga a pasar por el panel o la CLI y a redesplegar.
+  Un formulario escribe en la base y hace efecto en el acto.
+- Strava puede rotar el refresh token al renovarlo. Una fila se reescribe sola;
+  una variable de entorno no.
 
-El token de Strava **no** va en Vercel: se guarda en `rutina_config` de tu Supabase.
-Son dos variables menos que configurar, y si Strava rota el refresh token al
-renovarlo, la fila se reescribe sola — una variable de entorno no puede.
+Si ya tenías `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` en Vercel siguen
+sirviendo como respaldo. Gana lo que esté en la base, que es lo que se puede
+corregir sin desplegar.
 
-Después de eso la app sincroniza sola al abrirla, con tope de una vez cada 6 horas
-para no agotar el límite de peticiones de Strava. También hay un botón manual.
+Después de conectar, la app sincroniza sola al abrirla, con tope de una vez cada
+6 horas para no agotar el límite de peticiones de Strava. También hay un botón
+manual y uno para desconectar.
+
+### Y antes de conectar
+
+`src/app/data/historial.seed.ts` trae 113 actividades reales de junio a
+septiembre de 2026 dentro del bundle, para que **Cumplimiento sirva desde el
+primer minuto**. Sin eso la página se vería vacía —como si no hubieras
+entrenado— hasta terminar el trámite de OAuth. Cuando Strava esté conectado, lo
+que baja de la API manda; la semilla solo rellena los huecos, deduplicada por
+`strava_id`.
 
 ## Desplegarlo en Vercel
 
@@ -89,49 +109,67 @@ npx vercel --prod
 ```
 
 `vercel.json` ya trae la configuración correcta (`outputDirectory: dist/rutina703/browser`
-y el rewrite de SPA para que las rutas profundas no den 404).
-
-Si preferís conectarlo a Git, subilo a un repo y desde el dashboard de Vercel importalo:
-el framework se autodetecta como Angular y `vercel.json` hace el resto.
+y el rewrite de SPA para que las rutas profundas no den 404). Si está conectado
+a Git, con hacer push a `main` alcanza.
 
 ## Qué hay adentro
 
 | Ruta | Qué muestra |
 |---|---|
 | `/` | Las sesiones de hoy, macros del día, campo para pegar el WOD de CrossFit |
-| `/semana` | Los 7 días con checkboxes y barra de avance |
-| `/plan` | Las 26 semanas completas, zonas de FC y ritmos actuales vs. meta |
-| `/nutricion` | Menús por tipo de día, tabla de alimentos y calculadora de porciones |
+| `/semana` | Los 7 días; al tocar uno se abre la rutina completa, y lo hecho se aparta |
+| `/plan` | Las 60 semanas por bloques, zonas de FC y ritmos actuales vs. meta |
+| `/nutricion` | Menús por tipo de día, registro de lo que comiste y suma corrida |
 | `/peso` | Gráfica SVG de curva objetivo vs. registros reales |
 | `/carreras` | Cuenta regresiva y proyección de tiempos por segmento |
+| `/cumplimiento` | Lo planificado contra lo que dice Strava, día por día |
 
 ## Estructura
 
 ```
 api/
-└── datos.mjs               # única puerta a Supabase; valida el código de acceso
+├── datos.mjs               # única puerta a Supabase; valida el código de acceso
+└── strava.mjs              # OAuth, refresco de token y sync incremental
 supabase/migrations/
-└── 0001_rutina_703.sql     # las 4 tablas rutina_*, con RLS deny-all
+├── 0001_rutina_703.sql     # peso, sesion, wod, nota_semana + RLS deny-all
+├── 0002_cumplimiento.sql   # actividad y dia (descanso + comidas)
+└── 0003_strava.sql         # config: credenciales y tokens de Strava
 src/app/
 ├── data/
-│   ├── plan.data.ts        # 26 semanas — GENERADO por gen_plan.py
+│   ├── plan.data.ts        # 60 semanas y 15 bloques — GENERADO por gen_plan.py
 │   ├── nutricion.data.ts   # macros y menús — GENERADO por gen_data.py
+│   ├── historial.seed.ts   # historial de Strava — GENERADO por gen_semilla.py
+│   ├── comidas.ts          # normaliza los 4 menús para poder mezclarlos
+│   ├── cumplimiento.ts     # veredicto de cada día contra el plan
 │   ├── sesiones.data.ts    # biblioteca de sesiones y estructura semanal
 │   └── carreras.data.ts    # carreras, proyecciones y punto de decisión
 ├── services/
 │   ├── plan.service.ts     # qué semana/día es hoy, cuentas regresivas
 │   ├── api.service.ts      # cliente de /api/datos y estado de conexión
+│   ├── strava.service.ts   # configuración, autorización y sync
 │   └── storage.service.ts  # caché local + cola de reintentos + sincronización
 └── pages/                  # una por ruta, lazy-loaded
 ```
 
-Los dos archivos marcados como GENERADO salen de scripts de Python que calculan y **validan**
-los números (los menús caen dentro de ±3 % de su objetivo de kcal, y las fechas de carrera se
-verifican con asserts). Si querés cambiar el plan, es mejor tocar el script y regenerar que
-editar el `.ts` a mano.
+Los tres archivos marcados como GENERADO salen de scripts de Python que calculan
+y **validan** los números: los menús caen dentro de ±3 % de su objetivo de kcal,
+las fechas de carrera se verifican con asserts y el plan no deja más de cuatro
+semanas de carga seguidas sin descarga. Si querés cambiar algo, es mejor tocar
+el script y regenerar que editar el `.ts` a mano.
+
+## Pruebas
+
+```bash
+node scripts/probar-api.mjs      # /api/datos contra un PostgREST simulado
+node scripts/probar-strava.mjs   # OAuth, refresco y sync contra Strava simulada
+```
+
+Las dos levantan servidores de mentira en localhost: no tocan Supabase ni Strava
+de verdad, y no necesitan credenciales.
 
 ## De dónde salen los números
 
-Los ritmos no son genéricos: están calibrados con las actividades reales de Strava
-(natación de 2600 m a 2:14/100 m, media maratón del 23 ago, la única salida de bici de 12 km,
-y las zonas de FC configuradas en el perfil).
+Los ritmos no son genéricos: están calibrados con las actividades reales de
+Strava. Natación mucho más sólida de lo que parecía (sesiones de 3.5–4 km a
+2:12–2:20/100 m), media maratón del 23 ago 2026, y la bici como el punto débil
+real — salidas de 16 a 19 km con 150–200 m de desnivel. El plan carga ahí.

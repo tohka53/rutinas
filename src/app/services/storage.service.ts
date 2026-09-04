@@ -1,6 +1,7 @@
 import { Injectable, signal, effect, inject, computed } from '@angular/core';
 import { ApiService } from './api.service';
-import type { Actividad } from '../data/cumplimiento';
+import { IDS_IGNORADOS, type Actividad } from '../data/cumplimiento';
+import { HISTORIAL_SEMILLA } from '../data/historial.seed';
 
 export interface RegistroPeso { fecha: string; kg: number; nota?: string | null; }
 export interface NotaSemana { sensaciones?: string | null; sueno?: number | null; energia?: number | null; molestias?: string | null; }
@@ -191,7 +192,17 @@ export class StorageService {
   }
 
   // ---------------------------------------------------- actividades de Strava
-  readonly actividades = computed(() => this.estado().actividades);
+  //
+  // Lo que baja de Strava manda; la semilla del bundle solo rellena los huecos,
+  // deduplicando por strava_id. Asi Cumplimiento tiene con que comparar antes
+  // de conectar Strava, y no duplica nada despues de conectarlo.
+  readonly actividades = computed<Actividad[]>(() => {
+    const remotas = this.estado().actividades.filter(a => !IDS_IGNORADOS.has(a.strava_id));
+    const vistos = new Set(remotas.map(a => a.strava_id));
+    const semilla = HISTORIAL_SEMILLA.filter(
+      a => !vistos.has(a.strava_id) && !IDS_IGNORADOS.has(a.strava_id));
+    return [...remotas, ...semilla];
+  });
 
   // ------------------------------------------------------------------ respaldo
   exportar(): string { return JSON.stringify(this.estado(), null, 2); }

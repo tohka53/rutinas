@@ -31,6 +31,21 @@ export function disciplinaDe(sportType: string): string {
 /** Las que cuentan para el plan. Caminar suma salud, pero no es una sesión. */
 export const DEL_PLAN = new Set(['nado', 'bici', 'corre', 'fuerza', 'brick']);
 
+/**
+ * Actividades que Strava tiene pero que no deben contar.
+ *
+ * El 5 de julio la misma salida quedo grabada dos veces, con 24 segundos de
+ * diferencia entre una y otra (18.2 km y 19.4 km del mismo recorrido). Sumar las
+ * dos infla la semana en 18 km de bici, justo la disciplina que hay que medir
+ * con mas cuidado. Se descarta la mas corta, que es la que corto antes.
+ *
+ * La lista se aplica al leer, no al guardar: si manana Strava borra la copia, la
+ * fila sobrante desaparece sola y esto no estorba.
+ */
+export const IDS_IGNORADOS = new Set<number>([
+  19190203128,   // 5 jul 2026 — copia de la salida 19190209951
+]);
+
 export type Veredicto = 'completo' | 'parcial' | 'descanso' | 'nada' | 'extra' | 'futuro';
 
 export const ETIQUETA_VEREDICTO: Record<Veredicto, string> = {
@@ -100,13 +115,30 @@ export function evaluarDia(
 
 export interface TotalesSemana {
   nadoM: number; biciKm: number; correKm: number; sesionesFuerza: number; horas: number;
+  /** Rodillo y spinning: cuentan tiempo pero Strava no les da distancia. */
+  biciIndoorN: number; biciIndoorH: number;
 }
 
+/**
+ * Suma el volumen de una lista de actividades.
+ *
+ * El detalle que importa: una sesion de spinning o de rodillo entra en Strava
+ * como Ride con distance = 0. Si solo se miran kilometros, una semana con dos
+ * spinnings se ve identica a una semana sin tocar la bici — y el panel estaria
+ * mintiendo justo en la disciplina mas floja. Por eso el tiempo indoor se
+ * cuenta aparte, sin inventar una conversion a kilometros.
+ */
 export function totalizar(actividades: Actividad[]): TotalesSemana {
-  const t: TotalesSemana = { nadoM: 0, biciKm: 0, correKm: 0, sesionesFuerza: 0, horas: 0 };
+  const t: TotalesSemana = {
+    nadoM: 0, biciKm: 0, correKm: 0, sesionesFuerza: 0, horas: 0,
+    biciIndoorN: 0, biciIndoorH: 0,
+  };
   for (const a of actividades) {
     if (a.disciplina === 'nado') t.nadoM += a.metros;
-    else if (a.disciplina === 'bici') t.biciKm += a.metros / 1000;
+    else if (a.disciplina === 'bici') {
+      t.biciKm += a.metros / 1000;
+      if (a.metros === 0) { t.biciIndoorN += 1; t.biciIndoorH += a.segundos / 3600; }
+    }
     else if (a.disciplina === 'corre') t.correKm += a.metros / 1000;
     else if (a.disciplina === 'fuerza') t.sesionesFuerza += 1;
     if (a.disciplina !== 'caminata') t.horas += a.segundos / 3600;
@@ -117,6 +149,8 @@ export function totalizar(actividades: Actividad[]): TotalesSemana {
     correKm: +t.correKm.toFixed(1),
     sesionesFuerza: t.sesionesFuerza,
     horas: +t.horas.toFixed(1),
+    biciIndoorN: t.biciIndoorN,
+    biciIndoorH: +t.biciIndoorH.toFixed(1),
   };
 }
 

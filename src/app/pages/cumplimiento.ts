@@ -1,6 +1,7 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { PlanService, fechaCorta } from '../services/plan.service';
+import { PlanService, fechaCorta, iso, desdeIso } from '../services/plan.service';
+import { SEMANAS, INICIO_PLAN } from '../data/plan.data';
 import { StorageService } from '../services/storage.service';
 import { ApiService } from '../services/api.service';
 import { StravaService } from '../services/strava.service';
@@ -26,8 +27,8 @@ import {
           <strong>
             @switch (strava.estado()) {
               @case ('conectado') { Strava conectado }
-              @case ('desconectado') { Strava sin conectar }
-              @case ('sin-configurar') { Falta configurar Strava en Vercel }
+              @case ('desconectado') { Falta autorizar en Strava }
+              @case ('sin-configurar') { Conectar Strava — se hace una sola vez }
               @default { Comprobando Strava… }
             }
           </strong>
@@ -42,11 +43,11 @@ import {
                 }
               }
               @case ('desconectado') {
-                Autorizá una vez y desde ahí las actividades entran solas.
+                Las credenciales ya están guardadas. Falta darle permiso desde tu cuenta.
               }
               @case ('sin-configurar') {
-                Faltan estas variables: {{ strava.faltan().join(', ') }}.
-                Se crean en strava.com/settings/api.
+                Mientras tanto ya estás viendo tu historial real de junio a septiembre:
+                viene dentro de la app. Conectando Strava se actualiza solo.
               }
               @default { … }
             }
@@ -54,24 +55,95 @@ import {
         </div>
         <div class="acciones">
           @if (strava.estado() === 'desconectado') {
-            <button class="primary" (click)="strava.conectar()">Conectar Strava</button>
+            <button class="primary" (click)="strava.conectar()">Autorizar en Strava</button>
           }
           @if (strava.estado() === 'conectado') {
-            <button (click)="sincronizar()" [disabled]="strava.sincronizando()">
+            <button class="primary" (click)="sincronizar()" [disabled]="strava.sincronizando()">
               {{ strava.sincronizando() ? 'Sincronizando…' : 'Sincronizar ahora' }}
             </button>
+            <button (click)="strava.desconectar()">Desconectar</button>
           }
         </div>
       </div>
+
+      @if (strava.estado() === 'sin-configurar') {
+        <ol class="pasos">
+          <li>
+            Abrí
+            <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>
+            y creá una aplicación con estos datos:
+            <table class="mini">
+              <tbody>
+                <tr><td>Application Name</td><td><code>Rutina 70.3</code></td></tr>
+                <tr><td>Category</td><td><code>Training</code></td></tr>
+                <tr><td>Website</td><td><code>https://{{ dominio() }}</code></td></tr>
+                <tr><td>Authorization Callback Domain</td><td><code>{{ dominio() }}</code></td></tr>
+              </tbody>
+            </table>
+            El callback va sin <code>https://</code> y sin barras: solo el dominio.
+          </li>
+          <li>
+            Copiá el <strong>Client ID</strong> y el <strong>Client Secret</strong>
+            — el segundo aparece al tocar <em>Show</em>.
+          </li>
+          <li>
+            Pegalos acá abajo. Se guardan en tu Supabase, detrás del código de acceso;
+            no quedan en el navegador ni hay que tocar Vercel.
+          </li>
+        </ol>
+
+        <div class="form">
+          <label>
+            <span class="dim etiq">Client ID</span>
+            <input inputmode="numeric" autocomplete="off" placeholder="123456"
+                   [value]="clientId()" (input)="clientId.set(texto($event))">
+          </label>
+          <label>
+            <span class="dim etiq">Client Secret</span>
+            <input [type]="verSecret() ? 'text' : 'password'" autocomplete="off"
+                   placeholder="••••••••••••" spellcheck="false"
+                   [value]="clientSecret()" (input)="clientSecret.set(texto($event))">
+          </label>
+          <div class="acciones">
+            <button class="primary" (click)="guardarCredenciales()"
+                    [disabled]="strava.guardando() || !clientId().trim() || !clientSecret().trim()">
+              {{ strava.guardando() ? 'Guardando…' : 'Guardar y conectar' }}
+            </button>
+            <button type="button" (click)="verSecret.set(!verSecret())">
+              {{ verSecret() ? 'Ocultar' : 'Ver' }}
+            </button>
+          </div>
+        </div>
+      }
+
       @if (strava.mensaje()) { <div class="nota">{{ strava.mensaje() }}</div> }
     </div>
 
-    @if (!store.actividades().length && strava.estado() === 'conectado') {
-      <div class="card vacio">
-        <strong>Conectado, pero sin actividades todavía.</strong>
-        <p class="muted" style="margin:.4rem 0 0">
-          Tocá <em>Sincronizar ahora</em>. La primera vez trae hasta 13 meses de historial.
+    @if (!hayDatosSemana()) {
+      <div class="card vacio partida">
+        <strong>Esta semana todavía no tiene nada registrado.</strong>
+        <p class="muted" style="margin:.35rem 0 .8rem">
+          Así venías las 4 semanas antes de arrancar
+          ({{ fechaCorta(partida().desde) }} – {{ fechaCorta(partida().hasta) }}),
+          promedio por semana, contra lo que pide la semana 1. De ahí salió el
+          volumen inicial del plan.
         </p>
+        <div class="scroll-x">
+          <table>
+            <thead>
+              <tr><th>Volumen</th><th class="num">Venías haciendo</th><th class="num">Semana 1 pide</th></tr>
+            </thead>
+            <tbody>
+              @for (f of partida().filas; track f.etiqueta) {
+                <tr>
+                  <td>{{ f.etiqueta }}</td>
+                  <td class="num"><strong>{{ f.real | number }}</strong></td>
+                  <td class="num dim">{{ f.meta | number }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
     }
 
@@ -95,7 +167,10 @@ import {
           <tbody>
             @for (f of filas(); track f.etiqueta) {
               <tr>
-                <td>{{ f.etiqueta }}</td>
+                <td>
+                  {{ f.etiqueta }}
+                  @if (f.nota) { <div class="dim sub">{{ f.nota }}</div> }
+                </td>
                 <td class="num"><strong>{{ f.hecho | number }}</strong></td>
                 <td class="num dim">{{ f.objetivo | number }}</td>
                 <td>
@@ -135,7 +210,7 @@ import {
             <span class="dim etiq">Planificado</span>
             @if (d.planificadas.length) {
               @for (p of d.planificadas; track p.titulo) {
-                <div class="linea" [class.falta]="d.faltantes.includes(norm(p.disciplina)) && !d.descanso">
+                <div class="linea" [class.falta]="d.veredicto !== 'futuro' && !d.descanso && d.faltantes.includes(norm(p.disciplina))">
                   <span class="ico">{{ icono(p.disciplina) }}</span>
                   <span>{{ p.titulo }}</span>
                 </div>
@@ -182,8 +257,8 @@ import {
     .vacio { border-color: color-mix(in srgb, var(--bici) 40%, transparent); }
     .strava { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
     .strava.vacio { border-color: color-mix(in srgb, var(--bici) 40%, transparent); }
-    .strava strong { display: block; font-size: .92rem; margin-bottom: .15rem; }
-    .strava .dim { display: block; font-size: .82rem; line-height: 1.45; }
+    .strava > .cab strong { display: block; font-size: .92rem; margin-bottom: .15rem; }
+    .strava > .cab .dim { display: block; font-size: .82rem; line-height: 1.45; }
     .vacio code { font-family: var(--mono); font-size: .82rem; background: var(--surface-2);
                   padding: .1rem .3rem; border-radius: 4px; }
     .dia.hoy { border-color: color-mix(in srgb, var(--nado) 45%, transparent); }
@@ -196,6 +271,20 @@ import {
     .barra .bar { flex: 1; }
     .barra .dim { font-family: var(--mono); font-size: .75rem; min-width: 38px; text-align: right; }
     .chip.dim { color: var(--dim); }
+    .sub { font-size: .72rem; line-height: 1.35; margin-top: .12rem; max-width: 24ch; }
+    .pasos { margin: .9rem 0 0; padding-left: 1.15rem; font-size: .85rem; line-height: 1.6; }
+    .pasos li { margin-bottom: .6rem; }
+    .pasos code { font-family: var(--mono); font-size: .8rem; background: var(--surface-2);
+                  padding: .08rem .3rem; border-radius: 4px; }
+    .mini { margin: .4rem 0; font-size: .8rem; border-collapse: collapse; }
+    .mini td { padding: .18rem .6rem .18rem 0; vertical-align: top; }
+    .mini td:first-child { color: var(--dim); white-space: nowrap; }
+    .form { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: .7rem;
+            align-items: end; margin-top: .5rem; }
+    .form label { display: block; }
+    .form input { width: 100%; font-family: var(--mono); font-size: .85rem; }
+    .form .acciones { grid-column: 1 / -1; }
+    @media (max-width: 560px) { .form { grid-template-columns: 1fr; } }
     @media (max-width: 560px) { .cols { grid-template-columns: 1fr; gap: .5rem; } }
   `],
 })
@@ -207,6 +296,23 @@ export class CumplimientoPage {
   fechaCorta = fechaCorta;
   dur = duracion;
   sem = this.plan.semanaActual;
+
+  // Credenciales de la aplicación de Strava. Se escriben acá, se mandan al
+  // servidor y no vuelven: el secret no se guarda en el navegador ni se relee.
+  clientId = signal('');
+  clientSecret = signal('');
+  verSecret = signal(false);
+
+  /** El dominio que pide Strava en "Authorization Callback Domain". */
+  dominio = computed(() =>
+    this.strava.dominio() || (typeof location === 'undefined' ? '' : location.host));
+
+  texto(e: Event) { return (e.target as HTMLInputElement).value; }
+
+  async guardarCredenciales() {
+    const ok = await this.strava.configurar(this.clientId(), this.clientSecret());
+    if (ok) { this.clientId.set(''); this.clientSecret.set(''); this.verSecret.set(false); }
+  }
 
   constructor() {
     // Al abrir la vista se sincroniza sola, con tope de una vez cada 6 horas.
@@ -259,6 +365,35 @@ export class CumplimientoPage {
     });
   });
 
+  hayDatosSemana = computed(() => this.dias().some(d => d.hechas.length > 0));
+
+  /**
+   * Cómo venía entrenando en las 4 semanas previas al arranque del plan.
+   *
+   * Es el número con el que se calibró la semana 1, así que sirve de referencia
+   * mientras no haya datos propios: la página dice algo cierto en vez de quedar
+   * en blanco. Sale del historial que viaja en el bundle o de Strava, lo que haya.
+   */
+  partida = computed(() => {
+    const lunes = desdeIso(INICIO_PLAN);
+    const ini = new Date(lunes); ini.setDate(ini.getDate() - 28);
+    const fin = new Date(lunes); fin.setDate(fin.getDate() - 1);
+    const desde = iso(ini), hasta = iso(fin);
+    const t = totalizar(this.store.actividades().filter(a => a.fecha >= desde && a.fecha <= hasta));
+    const s1 = SEMANAS[0];
+    const media = (n: number, dec = 0) => +(n / 4).toFixed(dec);
+    return {
+      desde, hasta,
+      filas: [
+        { etiqueta: 'Natación (m)', real: media(t.nadoM), meta: s1.nadoM , nota: '' },
+        { etiqueta: 'Bici (km)', real: media(t.biciKm, 1), meta: s1.biciKm },
+        { etiqueta: 'Carrera (km)', real: media(t.correKm, 1), meta: s1.correKm , nota: '' },
+        { etiqueta: 'Sesiones de fuerza', real: media(t.sesionesFuerza, 1), meta: s1.crossfitDias , nota: '' },
+        { etiqueta: 'Horas totales', real: media(t.horas, 1), meta: s1.horas , nota: '' },
+      ],
+    };
+  });
+
   diasEvaluables = computed(() =>
     this.dias().filter(d => d.veredicto !== 'futuro' && d.veredicto !== 'descanso').length);
 
@@ -271,7 +406,10 @@ export class CumplimientoPage {
     const t = totalizar(this.store.actividades().filter(a => fechas.has(a.fecha)));
     return [
       { etiqueta: 'Natación (m)', hecho: t.nadoM, objetivo: s.nadoM, porc: pct(t.nadoM, s.nadoM) },
-      { etiqueta: 'Bici (km)', hecho: t.biciKm, objetivo: s.biciKm, porc: pct(t.biciKm, s.biciKm) },
+      { etiqueta: 'Bici (km)', hecho: t.biciKm, objetivo: s.biciKm, porc: pct(t.biciKm, s.biciKm),
+        nota: t.biciIndoorN
+          ? `+ ${t.biciIndoorN} sesión(es) indoor (${t.biciIndoorH} h). Strava no les pone distancia.`
+          : '' },
       { etiqueta: 'Carrera (km)', hecho: t.correKm, objetivo: s.correKm, porc: pct(t.correKm, s.correKm) },
       { etiqueta: 'Sesiones de fuerza', hecho: t.sesionesFuerza, objetivo: s.crossfitDias, porc: pct(t.sesionesFuerza, s.crossfitDias) },
       { etiqueta: 'Horas totales', hecho: t.horas, objetivo: s.horas, porc: pct(t.horas, s.horas) },
