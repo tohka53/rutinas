@@ -348,7 +348,8 @@ export class SemanaPage {
     return [
       fila('Natación (m)', t.nadoM, s.nadoM),
       fila('Bici (km)', t.biciKm, s.biciKm, t.biciIndoorN
-        ? `+ ${t.biciIndoorN} sesión(es) indoor (${t.biciIndoorH} h). Strava no les pone distancia.`
+        ? `Incluye ${t.biciIndoorKm} km estimados de ${t.biciIndoorN} sesión(es) indoor `
+          + `(${t.biciIndoorH} h a 18 km/h): Strava no les da distancia.`
         : ''),
       fila('Carrera (km)', t.correKm, s.correKm),
       fila('Sesiones de fuerza', t.sesionesFuerza, s.crossfitDias),

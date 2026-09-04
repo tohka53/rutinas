@@ -71,24 +71,34 @@ ok('ninguna sesión sale negativa ni se pasa del total', malas.length === 0, mal
 
 // ------------------------- 4. la sesión larga se lleva lo que dice la semana
 {
-  const s1 = SEMANAS[0];                       // S1: 4500 m, larga 2000 m
+  // Los numeros se leen del plan, no se escriben a mano: si manana cambia el
+  // volumen de la semana 1, la prueba sigue midiendo lo correcto.
+  const s1 = SEMANAS[0];
+  const numero = s => Number(/(\d+(?:\.\d+)?)/.exec(s)[1]);
   const v = volumenPorSesion(s1);
+  const largo = numero(s1.nadoLargo);
   const sabado = v.get(claveSesion(6, 0));
   ok('la natación larga del sábado se lleva el nadoLargo',
-     cerca(sabado.nadoM, 2000, 1), `${sabado.nadoM.toFixed(0)} vs 2000 (${s1.nadoLargo})`);
+     cerca(sabado.nadoM, largo, 1), `${sabado.nadoM.toFixed(0)} vs ${largo} (${s1.nadoLargo})`);
 
   const lun = v.get(claveSesion(1, 0)).nadoM, mie = v.get(claveSesion(3, 0)).nadoM;
   ok('lunes y miércoles se reparten el resto en partes iguales',
-     cerca(lun, mie, 0.01) && cerca(lun + mie, s1.nadoM - 2000, 1),
-     `lun ${lun.toFixed(0)} · mié ${mie.toFixed(0)}`);
+     cerca(lun, mie, 0.01) && cerca(lun + mie, s1.nadoM - largo, 1),
+     `lun ${lun.toFixed(0)} · mié ${mie.toFixed(0)} · resto ${(s1.nadoM - largo).toFixed(0)}`);
 
   const domingo = v.get(claveSesion(7, 0));
   ok('la bici larga del domingo se lleva el biciLarga',
-     cerca(domingo.biciKm, 30), `${domingo.biciKm.toFixed(1)} vs 30 (${s1.biciLarga})`);
+     cerca(domingo.biciKm, numero(s1.biciLarga)),
+     `${domingo.biciKm.toFixed(1)} vs ${numero(s1.biciLarga)} (${s1.biciLarga})`);
+
+  const spin = v.get(claveSesion(2, 0)).biciKm;
+  ok('cada clase de spinning queda en ~18 km, que es lo que marca la clase',
+     cerca(spin, 18, 0.6), `${spin.toFixed(1)} km`);
 
   const viernes = v.get(claveSesion(5, 1));
   ok('el trote del viernes se lleva el correLarga',
-     cerca(viernes.correKm, 8), `${viernes.correKm.toFixed(1)} vs 8 (${s1.correLarga})`);
+     cerca(viernes.correKm, numero(s1.correLarga)),
+     `${viernes.correKm.toFixed(1)} vs ${numero(s1.correLarga)} (${s1.correLarga})`);
 
   ok('el CrossFit no recibe kilómetros',
      v.get(claveSesion(1, 1)).nadoM === 0 && v.get(claveSesion(1, 1)).correKm === 0);
@@ -123,9 +133,9 @@ ok('ninguna sesión sale negativa ni se pasa del total', malas.length === 0, mal
 // ----------------------------------------------------------- 6. la etiqueta
 {
   const v = volumenPorSesion(SEMANAS[0]);
-  ok('etiqueta de nado en metros', etiquetaVolumen(v.get(claveSesion(6, 0))) === '2,000 m',
+  ok('etiqueta de nado en metros', /^[\d,]+ m$/.test(etiquetaVolumen(v.get(claveSesion(6, 0)))),
      etiquetaVolumen(v.get(claveSesion(6, 0))));
-  ok('etiqueta de bici en km', etiquetaVolumen(v.get(claveSesion(7, 0))) === '30.0 km',
+  ok('etiqueta de bici en km', /^[\d.]+ km$/.test(etiquetaVolumen(v.get(claveSesion(7, 0)))),
      etiquetaVolumen(v.get(claveSesion(7, 0))));
   ok('el CrossFit no lleva etiqueta', etiquetaVolumen(v.get(claveSesion(1, 1))) === '',
      etiquetaVolumen(v.get(claveSesion(1, 1))));

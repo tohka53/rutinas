@@ -113,10 +113,13 @@ export function evaluarDia(
   return { fecha, nombre, planificadas, hechas, faltantes, fueraDePlan, descanso, veredicto };
 }
 
+/** Una clase de spinning de una hora son ~18 km (dato de Miguel, aproximado). */
+export const KM_HORA_INDOOR = 18;
+
 export interface TotalesSemana {
   nadoM: number; biciKm: number; correKm: number; sesionesFuerza: number; horas: number;
   /** Rodillo y spinning: cuentan tiempo pero Strava no les da distancia. */
-  biciIndoorN: number; biciIndoorH: number;
+  biciIndoorN: number; biciIndoorH: number; biciIndoorKm: number;
 }
 
 /**
@@ -125,19 +128,29 @@ export interface TotalesSemana {
  * El detalle que importa: una sesion de spinning o de rodillo entra en Strava
  * como Ride con distance = 0. Si solo se miran kilometros, una semana con dos
  * spinnings se ve identica a una semana sin tocar la bici — y el panel estaria
- * mintiendo justo en la disciplina mas floja. Por eso el tiempo indoor se
- * cuenta aparte, sin inventar una conversion a kilometros.
+ * mintiendo justo en la disciplina mas floja.
+ *
+ * Se estiman a 18 km/h, que es lo que marca la clase. Es una estimacion y se
+ * dice que lo es: se guarda aparte en biciIndoorKm para poder mostrar cuanto
+ * del total no viene del GPS. La alternativa —no contarlos— era peor: dejaba en
+ * cero una semana en la que si pedaleo dos horas.
  */
 export function totalizar(actividades: Actividad[]): TotalesSemana {
   const t: TotalesSemana = {
     nadoM: 0, biciKm: 0, correKm: 0, sesionesFuerza: 0, horas: 0,
-    biciIndoorN: 0, biciIndoorH: 0,
+    biciIndoorN: 0, biciIndoorH: 0, biciIndoorKm: 0,
   };
   for (const a of actividades) {
     if (a.disciplina === 'nado') t.nadoM += a.metros;
     else if (a.disciplina === 'bici') {
-      t.biciKm += a.metros / 1000;
-      if (a.metros === 0) { t.biciIndoorN += 1; t.biciIndoorH += a.segundos / 3600; }
+      if (a.metros === 0) {
+        const horas = a.segundos / 3600;
+        const km = horas * KM_HORA_INDOOR;
+        t.biciIndoorN += 1; t.biciIndoorH += horas; t.biciIndoorKm += km;
+        t.biciKm += km;
+      } else {
+        t.biciKm += a.metros / 1000;
+      }
     }
     else if (a.disciplina === 'corre') t.correKm += a.metros / 1000;
     else if (a.disciplina === 'fuerza') t.sesionesFuerza += 1;
@@ -151,6 +164,7 @@ export function totalizar(actividades: Actividad[]): TotalesSemana {
     horas: +t.horas.toFixed(1),
     biciIndoorN: t.biciIndoorN,
     biciIndoorH: +t.biciIndoorH.toFixed(1),
+    biciIndoorKm: +t.biciIndoorKm.toFixed(1),
   };
 }
 

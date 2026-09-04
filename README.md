@@ -169,9 +169,28 @@ node scripts/probar-volumen.mjs  # el reparto de volumen cuadra en las 60 semana
 Las dos levantan servidores de mentira en localhost: no tocan Supabase ni Strava
 de verdad, y no necesitan credenciales.
 
+## Recalibración del 4 sep 2026
+
+El plan original salió de un diagnóstico conservador. Dos correcciones con datos reales:
+
+- **Nado.** La larga del sábado arrancaba en 2,000 m. El historial de Strava muestra
+  sesiones de 4,000 / 3,525 / 3,500 m y semanas de 7,150 / 6,700 / 5,100 m — 2,000 m
+  está por debajo de lo que ya hace un sábado cualquiera. Se subió el piso 1,000 m en
+  semanas de carga y 600 en descarga, con techo de 4,200 m. Las semanas de carrera no
+  se tocaron: el sábado previo a competir es afinar, no acumular.
+- **Bici.** Una clase de spinning son ~18 km, no los 12.5 que salían de repartir el
+  total. Con dos clases fijas por semana, el total es `biciLarga + 36`. Sube las
+  semanas iniciales (S1: 55 → 66 km, kilómetros que ya hacía y no se contaban) y baja
+  las finales (S55: 170 → 146 km, que pedían un tercer día de bici que su agenda no
+  tiene). En Strava el spinning entra con distancia 0, así que se estima a 18 km/h y
+  la app dice cuántos km del total son estimados.
+
+Ambas viven en `gen_plan.py` como un paso explícito sobre la tabla original, con
+asserts que verifican que se aplicó.
+
 ## De dónde salen los números
 
 Los ritmos no son genéricos: están calibrados con las actividades reales de
 Strava. Natación mucho más sólida de lo que parecía (sesiones de 3.5–4 km a
-2:12–2:20/100 m), media maratón del 23 ago 2026, y la bici como el punto débil
+2:12–2:20/100 m, semanas de hasta 7,150 m), media maratón del 23 ago 2026, y la bici como el punto débil
 real — salidas de 16 a 19 km con 150–200 m de desnivel. El plan carga ahí.

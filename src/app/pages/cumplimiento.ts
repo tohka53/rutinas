@@ -408,7 +408,8 @@ export class CumplimientoPage {
       { etiqueta: 'Natación (m)', hecho: t.nadoM, objetivo: s.nadoM, porc: pct(t.nadoM, s.nadoM) },
       { etiqueta: 'Bici (km)', hecho: t.biciKm, objetivo: s.biciKm, porc: pct(t.biciKm, s.biciKm),
         nota: t.biciIndoorN
-          ? `+ ${t.biciIndoorN} sesión(es) indoor (${t.biciIndoorH} h). Strava no les pone distancia.`
+          ? `Incluye ${t.biciIndoorKm} km estimados de ${t.biciIndoorN} sesión(es) indoor `
+            + `(${t.biciIndoorH} h a 18 km/h): Strava no les da distancia.`
           : '' },
       { etiqueta: 'Carrera (km)', hecho: t.correKm, objetivo: s.correKm, porc: pct(t.correKm, s.correKm) },
       { etiqueta: 'Sesiones de fuerza', hecho: t.sesionesFuerza, objetivo: s.crossfitDias, porc: pct(t.sesionesFuerza, s.crossfitDias) },

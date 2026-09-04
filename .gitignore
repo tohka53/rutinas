@@ -44,3 +44,7 @@ __screenshots__/
 Thumbs.db
 .vercel
 .env*
+
+# Basura que deja el puente con el contenedor: no puede borrar archivos, asi
+# que los mueve aca. Se borra a mano y no debe entrar nunca a un commit.
+_to_delete/
