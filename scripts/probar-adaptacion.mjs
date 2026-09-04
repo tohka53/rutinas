@@ -23,8 +23,8 @@ const m = await import(pathToFileURL(SALIDA).href);
 await rm(ENTRADA); await rm(SALIDA);
 
 const {
-  calcularAdaptacion, aplicarAdaptacion, resumen,
-  TOPE_SEMANAL, TECHO_FACTOR, TECHOS, SIN_AJUSTE,
+  calcularAdaptacion, aplicarAdaptacion, resumen, pasoDe,
+  PASO_MIN, PASO_MAX, TECHO_FACTOR, TECHOS, SIN_AJUSTE,
   volumenPorSesion, sumar, SEMANAS,
 } = m;
 
@@ -44,6 +44,8 @@ function acts(semana, { nadoM = 0, biciKm = 0, correKm = 0, horasExtra = 0 } = {
   return out;
 }
 const DESPUES = '2027-12-31';   // todas las semanas ya cerradas
+/** Da a la semana el volumen justo para que cuente como cumplida entera. */
+const completa = s => acts(s, { nadoM: s.nadoM, biciKm: s.biciKm, correKm: s.correKm, horasExtra: s.horas });
 
 // ------------------------------------------------------------ 1. sin datos
 {
@@ -69,13 +71,44 @@ const DESPUES = '2027-12-31';   // todas las semanas ya cerradas
      `pedia ${a.pasos[0].pedido}, hizo ${a.pasos[0].real}`);
 }
 
-// ------------------------------------------------ 3. el freno de +20 % frena
+// ---------------------------------- 3. el paso frena, y depende de la semana
 {
   const s1 = SEMANAS[0];
+  // Solo se paso en nado: no cumplio la semana entera, asi que el paso es el minimo.
   const a = calcularAdaptacion([s1], acts(s1, { nadoM: s1.nadoM * 3 }), DESPUES);
-  ok('nadar el triple NO triplica el plan', cerca(a.factores.nadoM, TOPE_SEMANAL),
-     `factor ${a.factores.nadoM.toFixed(3)} (tope ${TOPE_SEMANAL})`);
+  ok('nadar el triple NO triplica el plan', cerca(a.factores.nadoM, PASO_MIN),
+     `factor ${a.factores.nadoM.toFixed(3)} (paso minimo ${PASO_MIN})`);
   ok('y avisa que lo freno', a.pasos[0].frenado === true);
+  ok('con la semana a medias el paso es el minimo',
+     cerca(a.pasos[0].paso, PASO_MIN) && /no se cumplió entera/.test(a.pasos[0].porQue),
+     `${a.pasos[0].paso} · ${a.pasos[0].porQue}`);
+
+  // Cumpliendo toda la semana y ademas pasandose, el paso sube al intermedio.
+  const b = calcularAdaptacion([s1], [...completa(s1), ...acts(s1, { nadoM: s1.nadoM * 3 })], DESPUES);
+  ok('cumplir la semana entera da un paso mas grande',
+     b.factores.nadoM > a.factores.nadoM, `${a.factores.nadoM.toFixed(3)} → ${b.factores.nadoM.toFixed(3)}`);
+  ok('y lo explica', /semana completa/.test(b.pasos.find(p => p.campo === 'nadoM').porQue),
+     b.pasos.find(p => p.campo === 'nadoM').porQue);
+}
+
+// ------------------------------------------- 3b. la tabla de pasos, directa
+{
+  ok('semana a medias → 10 %', cerca(pasoDe(false, false).paso, PASO_MIN));
+  ok('semana completa → 15 %', cerca(pasoDe(true, false).paso, 1.15));
+  ok('dos completas seguidas → 20 %', cerca(pasoDe(true, true).paso, PASO_MAX));
+  ok('una completa despues de una floja NO da el maximo',
+     pasoDe(true, false).paso < PASO_MAX);
+}
+
+// -------------------------- 3c. el ajuste entra el domingo, no el lunes
+{
+  const s1 = SEMANAS[0];
+  const acti = acts(s1, { nadoM: s1.nadoM * 2 });
+  const sabado = calcularAdaptacion([s1], acti, '2026-09-12');
+  ok('el sabado todavia no ajusta', sabado.factores.nadoM === 1, `fin=${s1.fin}`);
+  const domingo = calcularAdaptacion([s1], acti, s1.fin);
+  ok('el domingo si — es el dia de armar la semana', domingo.factores.nadoM > 1,
+     `hoy=${s1.fin} factor=${domingo.factores.nadoM.toFixed(3)}`);
 }
 
 // ------------------------------- 4. varias semanas: sube gradual, con techo
@@ -90,7 +123,7 @@ const DESPUES = '2027-12-31';   // todas las semanas ya cerradas
   const crecimientos = a.pasos.filter(p => p.campo === 'nadoM')
     .map(p => p.despues / p.antes);
   ok('ningun salto individual pasa del 20 %',
-     crecimientos.every(c => c <= TOPE_SEMANAL + 1e-9),
+     crecimientos.every(c => c <= PASO_MAX + 1e-9),
      crecimientos.map(c => c.toFixed(2)).join(' · '));
 }
 
@@ -110,7 +143,7 @@ const DESPUES = '2027-12-31';   // todas las semanas ya cerradas
 {
   const s1 = SEMANAS[0];
   const a = calcularAdaptacion([s1], acts(s1, { nadoM: s1.nadoM * 2 }), s1.inicio);
-  ok('la semana en curso todavia no ajusta nada', a.factores.nadoM === 1,
+  ok('a media semana todavia no ajusta nada', a.factores.nadoM === 1,
      `hoy=${s1.inicio} fin=${s1.fin}`);
 }
 

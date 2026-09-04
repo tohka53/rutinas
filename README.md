@@ -201,9 +201,24 @@ También es la parte peligrosa. Un plan que sube cada vez que te pasás y que nu
 
 | Freno | Qué hace |
 |---|---|
-| `TOPE_SEMANAL` = 1.20 | El factor no crece más de 20 % de una semana a la otra, por mucho que se haya pasado |
+| El paso semanal | El factor crece entre 10 % y 20 %, nunca de golpe. Cuánto, lo decide cómo salió la semana |
 | `TECHO_FACTOR` = 1.50 | Nunca se aleja más de 50 % del plan diseñado. Más que eso es rehacer el plan, no dejarlo escalar |
 | `TECHOS` | Topes absolutos por semana, por si los dos anteriores fallan |
+
+El paso no es fijo, porque no es lo mismo pasarse nadando sin haber tocado la bici que
+cumplir todo y además pasarse:
+
+| Cómo salió la semana | Sube |
+|---|---|
+| Se pasó en algo, pero no cumplió la semana entera | **10 %** |
+| Cumplió todos sus objetivos | **15 %** |
+| Los cumplió, y la semana anterior también | **20 %** — dos seguidas ya es tendencia |
+
+**Cuándo:** el domingo, junto con la revisión y la programación de la semana. La semana
+empieza a contar desde su último día, no desde el lunes siguiente, así el ajuste ya está
+puesto cuando se arma la programación y no mueve los números a media semana. Que el domingo
+temprano falte la salida larga no rompe nada: como el factor nunca baja, leer antes solo
+puede quedarse corto, y en cuanto la actividad entra a Strava el ajuste sube solo.
 
 Y dos reglas que no se negocian: **las semanas de descarga y de carrera no se ajustan**
 (si la recuperación sube con el resto deja de ser recuperación), y **el factor nunca baja**

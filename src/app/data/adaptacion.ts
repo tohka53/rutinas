@@ -14,8 +14,8 @@ import { totalizar, type Actividad } from './cumplimiento';
  * que nunca baja, compone: +20 % semanal sostenido triplica el volumen en dos
  * meses. Por eso hay tres frenos, y los tres importan:
  *
- *   1. TOPE_SEMANAL — el factor no puede crecer más de 20 % de una semana a la
- *      otra, por mucho que se haya pasado. Un sábado enorme no reescribe el mes.
+ *   1. El paso semanal — el factor crece entre 10 % y 20 %, nunca de golpe. Cuánto
+ *      exactamente lo decide cómo salió la semana: ver `pasoDe`.
  *   2. TECHO_FACTOR — nunca se aleja más de 50 % del plan diseñado. Si hace
  *      falta más que eso, el plan está mal y hay que rehacerlo a mano, no
  *      dejarlo escalar solo.
@@ -29,12 +29,25 @@ import { totalizar, type Actividad } from './cumplimiento';
  *   - El factor nunca baja. Una semana floja no castiga: eso ya lo decidió
  *     Miguel para el cumplimiento y vale igual acá.
  *
+ * Cuándo se aplica: el domingo, que es el día de la revisión semanal. La semana
+ * empieza a contar desde su último día, no desde el lunes siguiente, así el
+ * ajuste ya está puesto cuando se arma la programación — y no cambia los
+ * números a media semana, con el plan ya en marcha.
+ *
+ * Que un domingo temprano todavía no tenga la salida larga cargada no rompe
+ * nada: como el factor nunca baja, leer antes solo puede quedarse corto, y en
+ * cuanto la actividad entra a Strava el ajuste sube solo.
+ *
  * No guarda nada. Se recalcula desde `rutina_actividad` cada vez, así que si
  * una actividad se borra o se corrige en Strava, el ajuste se corrige solo.
  */
 
-/** Cuánto puede crecer el factor de una semana a la siguiente. */
-export const TOPE_SEMANAL = 1.20;
+/** Piso y techo del paso semanal. Cuál de los dos toca lo decide `pasoDe`. */
+export const PASO_MIN = 1.10;
+export const PASO_MAX = 1.20;
+
+/** Con cuánto se da por cumplido un objetivo. Igual que el chip de la semana. */
+export const UMBRAL_CUMPLIDA = 0.95;
 
 /** Cuánto puede alejarse, como máximo, del plan diseñado. */
 export const TECHO_FACTOR = 1.50;
@@ -61,13 +74,49 @@ export interface PasoAdaptacion {
   real: number;
   antes: number;
   despues: number;
-  /** true si el freno de +20 % le impidió llegar a lo que hizo de verdad. */
+  /** El paso que se le permitió a esa semana (1.10 a 1.20). */
+  paso: number;
+  /** Por qué ese paso y no otro. */
+  porQue: string;
+  /** true si el paso le impidió llegar a lo que hizo de verdad. */
   frenado: boolean;
 }
 
 export interface Adaptacion {
   factores: Factores;
   pasos: PasoAdaptacion[];
+}
+
+/**
+ * Cuánto se le permite crecer al factor por esta semana.
+ *
+ * Un 20 % fijo trata igual a una semana en la que se pasó nadando pero no tocó
+ * la bici, y a una en la que cumplió todo y además se pasó. No es lo mismo: la
+ * segunda dice que el cuerpo absorbió la carga completa, la primera solo dice
+ * que le sobró tiempo un sábado.
+ *
+ *   10 %  por defecto
+ *   15 %  si esa semana cumplió todos sus objetivos
+ *   20 %  si además la anterior también los cumplió — dos seguidas ya es
+ *         tendencia, no una casualidad
+ */
+export function pasoDe(
+  estaCompleta: boolean, anteriorCompleta: boolean,
+): { paso: number; porQue: string } {
+  if (estaCompleta && anteriorCompleta) {
+    return { paso: PASO_MAX, porQue: 'dos semanas completas seguidas' };
+  }
+  if (estaCompleta) {
+    return { paso: (PASO_MIN + PASO_MAX) / 2, porQue: 'semana completa' };
+  }
+  return { paso: PASO_MIN, porQue: 'la semana no se cumplió entera' };
+}
+
+/** Cumplió todos los objetivos que tenía, con el ajuste vigente en ese momento. */
+function semanaCompleta(s: Semana, real: Factores, f: Factores): boolean {
+  const conObjetivo = CAMPOS.filter(c => s[c] > 0);
+  if (!conObjetivo.length) return false;
+  return conObjetivo.every(c => real[c] >= s[c] * f[c] * UMBRAL_CUMPLIDA);
 }
 
 function realesDe(s: Semana, actividades: readonly Actividad[]): Factores | null {
@@ -92,11 +141,19 @@ export function calcularAdaptacion(
   const f: Factores = { ...SIN_AJUSTE };
   const pasos: PasoAdaptacion[] = [];
 
+  let anteriorCompleta = false;
+
   for (const s of semanas) {
-    if (s.fin >= hoy) break;                 // la semana todavía no cierra
+    // Desde el domingo, que es cuando se revisa la semana y se arma la
+    // siguiente. Esperar al lunes movería los números con el plan ya andando.
+    if (s.fin > hoy) break;
     if (s.descarga || s.carrera) continue;   // descarga y carrera no mueven nada
     const real = realesDe(s, actividades);
-    if (!real) continue;                     // sin datos no se concluye nada
+    if (!real) { anteriorCompleta = false; continue; }   // sin datos no se concluye nada
+
+    const completa = semanaCompleta(s, real, f);
+    const { paso, porQue } = pasoDe(completa, anteriorCompleta);
+    anteriorCompleta = completa;
 
     for (const campo of CAMPOS) {
       const base = s[campo];
@@ -105,7 +162,7 @@ export function calcularAdaptacion(
       if (real[campo] <= pedido) continue;   // no se pasó: el factor queda igual
 
       const deseado = real[campo] / base;
-      const topado = Math.min(deseado, f[campo] * TOPE_SEMANAL, TECHO_FACTOR);
+      const topado = Math.min(deseado, f[campo] * paso, TECHO_FACTOR);
       if (topado <= f[campo] + 1e-9) continue;
 
       pasos.push({
@@ -113,6 +170,7 @@ export function calcularAdaptacion(
         pedido: redondear(campo, pedido),
         real: redondear(campo, real[campo]),
         antes: f[campo], despues: topado,
+        paso, porQue,
         frenado: topado < deseado - 1e-9,
       });
       f[campo] = topado;

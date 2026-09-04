@@ -6,7 +6,7 @@ import { StorageService } from '../services/storage.service';
 import { SEMANA_BASE } from '../data/sesiones.data';
 import { volumenPorSesion, sumar, etiquetaVolumen, claveSesion } from '../data/volumen';
 import { totalizar, pct as porcentaje } from '../data/cumplimiento';
-import { resumen, ETIQUETA_CAMPO, TOPE_SEMANAL, TECHO_FACTOR } from '../data/adaptacion';
+import { resumen, ETIQUETA_CAMPO, PASO_MIN, PASO_MAX, TECHO_FACTOR } from '../data/adaptacion';
 import { TIPOS_DIA } from '../data/nutricion.data';
 
 @Component({
@@ -61,12 +61,15 @@ import { TIPOS_DIA } from '../data/nutricion.data';
             <span class="dim sub">
               @if (subidas().length) {
                 Subió por lo que registraste en Strava: {{ textoSubidas() }}.
-                Máximo +{{ topePct }} % por semana y +{{ techoPct }} % sobre el plan original.
+                Se revisa los domingos, junto con la programación de la semana.
+                Sube entre {{ pasoMinPct }} y {{ pasoMaxPct }} % según cómo salga la semana,
+                y nunca más de +{{ techoPct }} % sobre el plan original.
               } @else if (!plan.adaptar()) {
                 Apagado. El plan queda como se diseñó, pase lo que pase en Strava.
               } @else {
-                Todavía no subió nada. Cuando cierres una semana entrenando por encima
-                de la meta, el plan sube — máximo +{{ topePct }} % por semana.
+                Todavía no subió nada. Cada domingo, al armar la semana, se revisa lo que
+                registró Strava: si te pasaste de la meta el plan sube {{ pasoMinPct }} %,
+                {{ pasoMedPct }} % si cumpliste la semana entera, {{ pasoMaxPct }} % si fueron dos seguidas.
               }
             </span>
           </div>
@@ -89,7 +92,9 @@ import { TIPOS_DIA } from '../data/nutricion.data';
                       <td>S{{ p.semana }}</td>
                       <td>
                         {{ etiqueta(p.campo) }}
-                        @if (p.frenado) { <div class="dim sub">Hiciste más, pero el freno de +{{ topePct }} % lo cortó acá.</div> }
+                        <div class="dim sub">
+                          Paso +{{ pct2(p.paso) }} % · {{ p.porQue }}@if (p.frenado) {. Hiciste más, pero se cortó acá}
+                        </div>
                       </td>
                       <td class="num dim">{{ p.pedido | number }}</td>
                       <td class="num"><strong>{{ p.real | number }}</strong></td>
@@ -372,13 +377,15 @@ export class SemanaPage {
   });
 
   // --------------------------------------------- el plan que se ajusta solo
-  topePct = Math.round((TOPE_SEMANAL - 1) * 100);
+  pasoMinPct = Math.round((PASO_MIN - 1) * 100);
+  pasoMaxPct = Math.round((PASO_MAX - 1) * 100);
   techoPct = Math.round((TECHO_FACTOR - 1) * 100);
 
   subidas = computed(() => resumen(this.plan.adaptacion().factores));
   pasos = computed(() => this.plan.adaptacion().pasos);
   etiqueta(c: string) { return ETIQUETA_CAMPO[c as keyof typeof ETIQUETA_CAMPO]; }
   pct2(f: number) { return Math.round((f - 1) * 100); }
+  pasoMedPct = Math.round(((PASO_MIN + PASO_MAX) / 2 - 1) * 100);
   textoSubidas() {
     return this.subidas().map(s => `${this.etiqueta(s.campo)} +${s.pct} %`).join(' · ');
   }
