@@ -90,7 +90,11 @@ export class PlanService {
         return { ...s, titulo: semana.correLarga };
       }
       if (dow === 5 && s.disciplina === 'corre') {
-        return { ...s, titulo: `Trote suave — ${semana.correLarga}` };
+        // En semana de carrera, correLarga es la carrera del domingo. Pegarla
+        // acá dejaba un "Trote suave — CARRERA 21.1 km" el viernes.
+        return semana.correLarga.startsWith('CARRERA')
+          ? { ...s, titulo: 'Trote suave — soltar piernas' }
+          : { ...s, titulo: `Trote suave — ${semana.correLarga}` };
       }
       return s;
     });

@@ -117,7 +117,7 @@ a Git, con hacer push a `main` alcanza.
 | Ruta | Qué muestra |
 |---|---|
 | `/` | Las sesiones de hoy, macros del día, campo para pegar el WOD de CrossFit |
-| `/semana` | Los 7 días; al tocar uno se abre la rutina completa, y lo hecho se aparta |
+| `/semana` | Los 7 días; al marcar una sesión se descuenta su volumen del objetivo, y abajo la comparación con Strava |
 | `/plan` | Las 60 semanas por bloques, zonas de FC y ritmos actuales vs. meta |
 | `/nutricion` | Menús por tipo de día, registro de lo que comiste y suma corrida |
 | `/peso` | Gráfica SVG de curva objetivo vs. registros reales |
@@ -137,6 +137,7 @@ supabase/migrations/
 src/app/
 ├── data/
 │   ├── plan.data.ts        # 60 semanas y 15 bloques — GENERADO por gen_plan.py
+│   ├── volumen.ts          # reparte el volumen semanal entre las sesiones
 │   ├── nutricion.data.ts   # macros y menús — GENERADO por gen_data.py
 │   ├── historial.seed.ts   # historial de Strava — GENERADO por gen_semilla.py
 │   ├── comidas.ts          # normaliza los 4 menús para poder mezclarlos
@@ -162,6 +163,7 @@ el script y regenerar que editar el `.ts` a mano.
 ```bash
 node scripts/probar-api.mjs      # /api/datos contra un PostgREST simulado
 node scripts/probar-strava.mjs   # OAuth, refresco y sync contra Strava simulada
+node scripts/probar-volumen.mjs  # el reparto de volumen cuadra en las 60 semanas
 ```
 
 Las dos levantan servidores de mentira en localhost: no tocan Supabase ni Strava

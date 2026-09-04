@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { PlanService, fechaCorta } from '../services/plan.service';
 import { StorageService } from '../services/storage.service';
 import { SEMANA_BASE } from '../data/sesiones.data';
+import { volumenPorSesion, sumar, etiquetaVolumen, claveSesion } from '../data/volumen';
+import { totalizar, pct as porcentaje } from '../data/cumplimiento';
 import { TIPOS_DIA } from '../data/nutricion.data';
 
 @Component({
@@ -18,11 +20,30 @@ import { TIPOS_DIA } from '../data/nutricion.data';
         </div>
         @if (sem().descarga) { <span class="chip warn">Descarga</span> }
       </div>
-      <div class="grid g4" style="margin-top:.9rem">
-        <div class="stat"><span class="n">{{ sem().nadoM | number }}</span><span class="l">m nado</span></div>
-        <div class="stat"><span class="n">{{ sem().biciKm }}</span><span class="l">km bici</span></div>
-        <div class="stat"><span class="n">{{ sem().correKm }}</span><span class="l">km corriendo</span></div>
-        <div class="stat"><span class="n">{{ sem().horas }}</span><span class="l">horas totales</span></div>
+      <p class="rotulo">
+        {{ algoHecho() ? 'Lo que falta esta semana' : 'Lo que pide esta semana' }}
+      </p>
+      <div class="grid g4">
+        <div class="stat">
+          <span class="n">{{ falta().nadoM | number }}</span>
+          <span class="l">m nado</span>
+          @if (algoHecho()) { <span class="de">de {{ sem().nadoM | number }}</span> }
+        </div>
+        <div class="stat">
+          <span class="n">{{ falta().biciKm }}</span>
+          <span class="l">km bici</span>
+          @if (algoHecho()) { <span class="de">de {{ sem().biciKm }}</span> }
+        </div>
+        <div class="stat">
+          <span class="n">{{ falta().correKm }}</span>
+          <span class="l">km corriendo</span>
+          @if (algoHecho()) { <span class="de">de {{ sem().correKm }}</span> }
+        </div>
+        <div class="stat">
+          <span class="n">{{ falta().horas }}</span>
+          <span class="l">horas</span>
+          @if (algoHecho()) { <span class="de">de {{ sem().horas }}</span> }
+        </div>
       </div>
       <div style="margin-top:.9rem">
         <div class="dim" style="display:flex;justify-content:space-between">
@@ -30,6 +51,50 @@ import { TIPOS_DIA } from '../data/nutricion.data';
           <span>{{ pct() }} %</span>
         </div>
         <div class="bar"><i [style.width.%]="pct()"></i></div>
+      </div>
+
+      <div class="strava-cmp">
+        <p class="rotulo" style="margin-top:0">Lo que dice Strava</p>
+        <div class="scroll-x">
+          <table>
+            <thead>
+              <tr>
+                <th>Volumen</th>
+                <th class="num">Plan</th>
+                <th class="num">Strava</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of comparacion(); track c.etiqueta) {
+                <tr>
+                  <td>
+                    {{ c.etiqueta }}
+                    @if (c.nota) { <div class="dim sub">{{ c.nota }}</div> }
+                  </td>
+                  <td class="num dim">{{ c.plan | number }}</td>
+                  <td class="num"><strong>{{ c.real | number }}</strong></td>
+                  <td>
+                    @if (c.cumplida) {
+                      <span class="chip ok">Cumplida</span>
+                    } @else if (semanaEnCurso()) {
+                      <span class="dim mono">{{ c.porc }} %</span>
+                    } @else {
+                      <span class="chip dim">Meta no alcanzada</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="dim sub" style="margin:.5rem 0 0">
+          Solo informativo. No mueve la barra de arriba ni el descuento de las sesiones
+          — una meta no alcanzada es un dato, no una falta.
+          @if (semanaEnCurso()) {
+            Falta semana por delante: hasta el domingo ves el porcentaje, no el veredicto.
+          }
+        </p>
       </div>
     </div>
 
@@ -65,6 +130,7 @@ import { TIPOS_DIA } from '../data/nutricion.data';
                       [attr.aria-expanded]="abierta(d.fecha, s.i)">
                 <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
                 <span class="tit">{{ s.titulo }}</span>
+                @if (s.vol) { <span class="vol">{{ s.vol }}</span> }
                 <span class="dim min">{{ s.min }}′ · {{ s.zona }}</span>
                 <span class="flecha" [class.girada]="abierta(d.fecha, s.i)">▸</span>
               </button>
@@ -93,6 +159,7 @@ import { TIPOS_DIA } from '../data/nutricion.data';
                          [attr.aria-label]="'Desmarcar ' + s.titulo" />
                   <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
                   <span class="tit tachado">{{ s.titulo }}</span>
+                  @if (s.vol) { <span class="vol menos">−{{ s.vol }}</span> }
                 </label>
               }
             }
@@ -147,6 +214,16 @@ import { TIPOS_DIA } from '../data/nutricion.data';
   `,
   styles: [`
     .cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+    .rotulo { margin: .9rem 0 .1rem; font-size: .72rem; color: var(--muted);
+              text-transform: uppercase; letter-spacing: .06em; }
+    .stat .de { display: block; font-size: .7rem; color: var(--dim);
+                font-family: var(--mono); margin-top: .2rem; }
+    .vol { flex: 0 0 auto; font-family: var(--mono); font-size: .75rem; color: var(--nado); }
+    .vol.menos { color: var(--ok); }
+    .strava-cmp { margin-top: 1rem; padding-top: .8rem; border-top: 1px dashed var(--line); }
+    .sub { font-size: .74rem; line-height: 1.4; }
+    .mono { font-family: var(--mono); font-size: .78rem; }
+    .chip.dim { color: var(--dim); }
     .dia.hoy { border-color: color-mix(in srgb, var(--nado) 45%, transparent); }
     .sesion { border-bottom: 1px solid var(--line); }
     .sesion:last-of-type { border-bottom: none; }
@@ -181,7 +258,7 @@ import { TIPOS_DIA } from '../data/nutricion.data';
 })
 export class SemanaPage {
   plan = inject(PlanService);
-  private store = inject(StorageService);
+  store = inject(StorageService);
   fechaCorta = fechaCorta;
   sem = this.plan.semanaActual;
 
@@ -192,7 +269,10 @@ export class SemanaPage {
       const fecha = fechas[i];
       // `i` original se conserva en cada sesión: es la clave con la que se
       // guarda el marcado, y no puede cambiar al separar hechas de pendientes.
-      const sesiones = this.plan.sesionesDelDia(d.dow, s).map((x, i2) => ({ ...x, i: i2 }));
+      const vols = this.volumenes();
+      const sesiones = this.plan.sesionesDelDia(d.dow, s).map((x, i2) => ({
+        ...x, i: i2, vol: etiquetaVolumen(vols.get(claveSesion(d.dow, i2))),
+      }));
       const hechas = sesiones.filter(x => this.store.estaHecha(`${fecha}:${x.i}`));
       const pendientes = sesiones.filter(x => !this.store.estaHecha(`${fecha}:${x.i}`));
       return {
@@ -205,6 +285,76 @@ export class SemanaPage {
 
   kcal(t: string) { return TIPOS_DIA[t].kcal; }
   prot(t: string) { return TIPOS_DIA[t].p; }
+
+  /** Cuánto le toca a cada sesión del total de la semana. */
+  volumenes = computed(() => volumenPorSesion(this.sem()));
+
+  /**
+   * Lo hecho se descuenta del objetivo; al desmarcar vuelve solo, porque esto
+   * se recalcula desde las sesiones marcadas y no guarda un acumulado aparte.
+   */
+  hecho = computed(() => {
+    const v = this.volumenes();
+    const marcadas = this.dias().flatMap(d =>
+      d.hechas.map(s => v.get(claveSesion(d.dow, s.i))).filter(x => !!x));
+    return sumar(marcadas);
+  });
+
+  algoHecho = computed(() => this.completadas() > 0);
+
+  falta = computed(() => {
+    const s = this.sem(), h = this.hecho();
+    const piso = (n: number, dec = 0) => {
+      const r = Math.max(0, n);
+      return dec ? +r.toFixed(dec) : Math.round(r);
+    };
+    return {
+      nadoM: piso(s.nadoM - h.nadoM),
+      biciKm: piso(s.biciKm - h.biciKm, 1),
+      correKm: piso(s.correKm - h.correKm, 1),
+      horas: piso(s.horas - h.horas, 1),
+    };
+  });
+
+  /**
+   * Si todavía faltan días, un "meta no alcanzada" el martes no dice nada.
+   *
+   * El corte es el domingo, no el lunes siguiente: la vista siempre muestra la
+   * semana en curso, así que un veredicto que esperara al cierre no se vería
+   * nunca. El domingo ya está todo el volumen sobre la mesa y es el día en que
+   * se revisa la semana.
+   *
+   * "Cumplida" no espera a nada: si la meta ya se alcanzó el jueves, se dice.
+   */
+  semanaEnCurso = computed(() => this.plan.hoy() < this.sem().fin);
+
+  /**
+   * Plan contra lo que Strava registró en las fechas de esta semana.
+   *
+   * Es informativo a propósito: no toca el avance por sesiones. Marcar una
+   * sesión es lo que uno declara haber hecho; Strava es lo que quedó grabado.
+   * Cuando no coinciden, casi siempre es que algo no se registró — no que no
+   * se entrenó. Por eso una meta no alcanzada se muestra en gris y sin castigo.
+   */
+  comparacion = computed(() => {
+    const s = this.sem();
+    const fechas = new Set(this.plan.fechasSemana());
+    const t = totalizar(this.store.actividades().filter(a => fechas.has(a.fecha)));
+    const fila = (etiqueta: string, real: number, plan: number, nota = '') => ({
+      etiqueta, real, plan, nota,
+      porc: porcentaje(real, plan),
+      cumplida: porcentaje(real, plan) >= 95,
+    });
+    return [
+      fila('Natación (m)', t.nadoM, s.nadoM),
+      fila('Bici (km)', t.biciKm, s.biciKm, t.biciIndoorN
+        ? `+ ${t.biciIndoorN} sesión(es) indoor (${t.biciIndoorH} h). Strava no les pone distancia.`
+        : ''),
+      fila('Carrera (km)', t.correKm, s.correKm),
+      fila('Sesiones de fuerza', t.sesionesFuerza, s.crossfitDias),
+      fila('Horas totales', t.horas, s.horas),
+    ];
+  });
 
   total = computed(() => this.dias().reduce((a, d) => a + d.sesiones.length, 0));
   completadas = computed(() => this.dias().reduce((a, d) => a + d.hechas.length, 0));
