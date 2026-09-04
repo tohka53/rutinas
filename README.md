@@ -117,7 +117,7 @@ a Git, con hacer push a `main` alcanza.
 | Ruta | Qué muestra |
 |---|---|
 | `/` | Las sesiones de hoy, macros del día, campo para pegar el WOD de CrossFit |
-| `/semana` | Los 7 días; al marcar una sesión se descuenta su volumen del objetivo, y abajo la comparación con Strava |
+| `/semana` | Los 7 días; al marcar se descuenta el volumen, comparación con Strava y el ajuste automático del plan |
 | `/plan` | Las 60 semanas por bloques, zonas de FC y ritmos actuales vs. meta |
 | `/nutricion` | Menús por tipo de día, registro de lo que comiste y suma corrida |
 | `/peso` | Gráfica SVG de curva objetivo vs. registros reales |
@@ -138,6 +138,7 @@ src/app/
 ├── data/
 │   ├── plan.data.ts        # 60 semanas y 15 bloques — GENERADO por gen_plan.py
 │   ├── volumen.ts          # reparte el volumen semanal entre las sesiones
+│   ├── adaptacion.ts       # sube el plan cuando entrena por encima de la meta
 │   ├── nutricion.data.ts   # macros y menús — GENERADO por gen_data.py
 │   ├── historial.seed.ts   # historial de Strava — GENERADO por gen_semilla.py
 │   ├── comidas.ts          # normaliza los 4 menús para poder mezclarlos
@@ -163,7 +164,8 @@ el script y regenerar que editar el `.ts` a mano.
 ```bash
 node scripts/probar-api.mjs      # /api/datos contra un PostgREST simulado
 node scripts/probar-strava.mjs   # OAuth, refresco y sync contra Strava simulada
-node scripts/probar-volumen.mjs  # el reparto de volumen cuadra en las 60 semanas
+node scripts/probar-volumen.mjs     # el reparto de volumen cuadra en las 60 semanas
+node scripts/probar-adaptacion.mjs  # el plan sube cuando toca, y los frenos aguantan
 ```
 
 Las dos levantan servidores de mentira en localhost: no tocan Supabase ni Strava
@@ -187,6 +189,28 @@ El plan original salió de un diagnóstico conservador. Dos correcciones con dat
 
 Ambas viven en `gen_plan.py` como un paso explícito sobre la tabla original, con
 asserts que verifican que se aplicó.
+
+## El plan se ajusta solo
+
+Si entrena por encima de la meta, el plan sube. Es idea de Miguel y es como funciona el
+entrenamiento de verdad: la carga se calibra contra lo que el cuerpo ya demostró, no contra
+una tabla escrita hace meses.
+
+También es la parte peligrosa. Un plan que sube cada vez que te pasás y que nunca baja
+**compone**: +20 % semanal sostenido triplica el volumen en dos meses. Por eso hay tres frenos:
+
+| Freno | Qué hace |
+|---|---|
+| `TOPE_SEMANAL` = 1.20 | El factor no crece más de 20 % de una semana a la otra, por mucho que se haya pasado |
+| `TECHO_FACTOR` = 1.50 | Nunca se aleja más de 50 % del plan diseñado. Más que eso es rehacer el plan, no dejarlo escalar |
+| `TECHOS` | Topes absolutos por semana, por si los dos anteriores fallan |
+
+Y dos reglas que no se negocian: **las semanas de descarga y de carrera no se ajustan**
+(si la recuperación sube con el resto deja de ser recuperación), y **el factor nunca baja**
+— una semana floja no castiga.
+
+No guarda estado: se recalcula desde `rutina_actividad` cada vez, así que si una actividad se
+borra o se corrige en Strava, el ajuste se corrige solo. Se puede apagar desde la vista Semana.
 
 ## De dónde salen los números
 

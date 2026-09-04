@@ -1,8 +1,12 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, signal, inject, effect } from '@angular/core';
 import { SEMANAS, INICIO_PLAN, type Semana } from '../data/plan.data';
 import { SEMANA_BASE, type DiaBase } from '../data/sesiones.data';
 import { CARRERAS, type Carrera } from '../data/carreras.data';
 import { TIPOS_DIA, MENUS } from '../data/nutricion.data';
+import { StorageService } from './storage.service';
+import {
+  calcularAdaptacion, aplicarAdaptacion, SIN_AJUSTE, type Adaptacion,
+} from '../data/adaptacion';
 
 export function iso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -25,18 +29,52 @@ export function fechaLarga(s: string): string {
   return `${d.getDate()} de ${['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][d.getMonth()]} de ${d.getFullYear()}`;
 }
 
+const CLAVE_ADAPTAR = 'rutina703.adaptar';
+
+function leerAdaptar(): boolean {
+  try { return localStorage.getItem(CLAVE_ADAPTAR) !== '0'; } catch { return true; }
+}
+
 @Injectable({ providedIn: 'root' })
 export class PlanService {
+  private store = inject(StorageService);
+
   /** Fecha "de hoy". Se puede mover para revisar otros días del plan. */
   readonly hoy = signal<string>(iso(new Date()));
+
+  /**
+   * Si el plan se sube solo cuando entrena de más. Encendido por defecto.
+   * Vive en el navegador porque es una preferencia de cómo mirar el plan, no un
+   * dato: perderla no pierde nada, el ajuste se recalcula igual desde Strava.
+   */
+  readonly adaptar = signal<boolean>(leerAdaptar());
+
+  constructor() {
+    effect(() => {
+      try { localStorage.setItem(CLAVE_ADAPTAR, this.adaptar() ? '1' : '0'); } catch { /* sin persistencia */ }
+    });
+  }
+
+  /** Cuánto subió el plan por lo que realmente entrenó, y de dónde salió. */
+  readonly adaptacion = computed<Adaptacion>(() =>
+    this.adaptar()
+      ? calcularAdaptacion(SEMANAS, this.store.actividades(), this.hoy())
+      : { factores: SIN_AJUSTE, pasos: [] });
+
+  /** Las 60 semanas con los objetivos ya ajustados. */
+  readonly semanas = computed<Semana[]>(() => {
+    const f = this.adaptacion().factores;
+    return SEMANAS.map(s => aplicarAdaptacion(s, f));
+  });
 
   readonly semanaActual = computed<Semana>(() => {
     const h = desdeIso(this.hoy());
     const d = diasEntre(desdeIso(INICIO_PLAN), h);
     const n = Math.floor(d / 7) + 1;
-    if (n < 1) return SEMANAS[0];
-    if (n > SEMANAS.length) return SEMANAS[SEMANAS.length - 1];
-    return SEMANAS[n - 1];
+    const ss = this.semanas();
+    if (n < 1) return ss[0];
+    if (n > ss.length) return ss[ss.length - 1];
+    return ss[n - 1];
   });
 
   /** true cuando la fecha de hoy cae antes de que arranque el plan. */

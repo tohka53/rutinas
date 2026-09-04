@@ -1,6 +1,6 @@
 import { Component, inject, computed } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { SEMANAS, BLOQUES } from '../data/plan.data';
+import { BLOQUES } from '../data/plan.data';
 import { PlanService, fechaCorta } from '../services/plan.service';
 import { RITMOS, ZONAS_FC } from '../data/sesiones.data';
 import { DECISION_SEMANA_9 } from '../data/carreras.data';
@@ -36,7 +36,7 @@ import { DECISION_SEMANA_9 } from '../data/carreras.data';
             </tr>
           </thead>
           <tbody>
-            @for (s of semanas; track s.n) {
+            @for (s of semanas(); track s.n) {
               <tr [class.hoy]="s.n === actual().n" [class.race]="s.carrera" [class.deload]="s.descarga">
                 <td class="num"><strong>{{ s.n }}</strong></td>
                 <td class="dim">{{ fechaCorta(s.inicio) }}</td>
@@ -131,7 +131,7 @@ import { DECISION_SEMANA_9 } from '../data/carreras.data';
 })
 export class PlanPage {
   private p = inject(PlanService);
-  semanas = SEMANAS;
+  semanas = this.p.semanas;      // ya ajustadas por lo que entrenó
   bloques = BLOQUES;
   ritmos = RITMOS;
   zonas = ZONAS_FC;

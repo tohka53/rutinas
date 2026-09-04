@@ -6,6 +6,7 @@ import { StorageService } from '../services/storage.service';
 import { SEMANA_BASE } from '../data/sesiones.data';
 import { volumenPorSesion, sumar, etiquetaVolumen, claveSesion } from '../data/volumen';
 import { totalizar, pct as porcentaje } from '../data/cumplimiento';
+import { resumen, ETIQUETA_CAMPO, TOPE_SEMANAL, TECHO_FACTOR } from '../data/adaptacion';
 import { TIPOS_DIA } from '../data/nutricion.data';
 
 @Component({
@@ -51,6 +52,55 @@ import { TIPOS_DIA } from '../data/nutricion.data';
           <span>{{ pct() }} %</span>
         </div>
         <div class="bar"><i [style.width.%]="pct()"></i></div>
+      </div>
+
+      <div class="adapta">
+        <div class="cab">
+          <div>
+            <span class="rotulo" style="margin:0">El plan se ajusta a lo que entrenás</span>
+            <span class="dim sub">
+              @if (subidas().length) {
+                Subió por lo que registraste en Strava: {{ textoSubidas() }}.
+                Máximo +{{ topePct }} % por semana y +{{ techoPct }} % sobre el plan original.
+              } @else if (!plan.adaptar()) {
+                Apagado. El plan queda como se diseñó, pase lo que pase en Strava.
+              } @else {
+                Todavía no subió nada. Cuando cierres una semana entrenando por encima
+                de la meta, el plan sube — máximo +{{ topePct }} % por semana.
+              }
+            </span>
+          </div>
+          <button (click)="plan.adaptar.set(!plan.adaptar())" [class.primary]="plan.adaptar()">
+            {{ plan.adaptar() ? 'Ajuste activo' : 'Ajuste apagado' }}
+          </button>
+        </div>
+
+        @if (plan.adaptar() && pasos().length) {
+          <details>
+            <summary class="dim sub">Ver de dónde salió ({{ pasos().length }} subida(s))</summary>
+            <div class="scroll-x">
+              <table>
+                <thead>
+                  <tr><th>Semana</th><th>Qué</th><th class="num">Pedía</th><th class="num">Hiciste</th><th class="num">Subió a</th></tr>
+                </thead>
+                <tbody>
+                  @for (p of pasos(); track p.semana + p.campo) {
+                    <tr>
+                      <td>S{{ p.semana }}</td>
+                      <td>
+                        {{ etiqueta(p.campo) }}
+                        @if (p.frenado) { <div class="dim sub">Hiciste más, pero el freno de +{{ topePct }} % lo cortó acá.</div> }
+                      </td>
+                      <td class="num dim">{{ p.pedido | number }}</td>
+                      <td class="num"><strong>{{ p.real | number }}</strong></td>
+                      <td class="num mono">+{{ pct2(p.despues) }} %</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </details>
+        }
       </div>
 
       <div class="strava-cmp">
@@ -221,6 +271,11 @@ import { TIPOS_DIA } from '../data/nutricion.data';
     .vol { flex: 0 0 auto; font-family: var(--mono); font-size: .75rem; color: var(--nado); }
     .vol.menos { color: var(--ok); }
     .strava-cmp { margin-top: 1rem; padding-top: .8rem; border-top: 1px dashed var(--line); }
+    .adapta { margin-top: 1rem; padding-top: .8rem; border-top: 1px dashed var(--line); }
+    .adapta .cab { align-items: center; }
+    .adapta details { margin-top: .5rem; }
+    .adapta summary { cursor: pointer; }
+    .adapta table { margin-top: .4rem; }
     .sub { font-size: .74rem; line-height: 1.4; }
     .mono { font-family: var(--mono); font-size: .78rem; }
     .chip.dim { color: var(--dim); }
@@ -315,6 +370,18 @@ export class SemanaPage {
       horas: piso(s.horas - h.horas, 1),
     };
   });
+
+  // --------------------------------------------- el plan que se ajusta solo
+  topePct = Math.round((TOPE_SEMANAL - 1) * 100);
+  techoPct = Math.round((TECHO_FACTOR - 1) * 100);
+
+  subidas = computed(() => resumen(this.plan.adaptacion().factores));
+  pasos = computed(() => this.plan.adaptacion().pasos);
+  etiqueta(c: string) { return ETIQUETA_CAMPO[c as keyof typeof ETIQUETA_CAMPO]; }
+  pct2(f: number) { return Math.round((f - 1) * 100); }
+  textoSubidas() {
+    return this.subidas().map(s => `${this.etiqueta(s.campo)} +${s.pct} %`).join(' · ');
+  }
 
   /**
    * Si todavía faltan días, un "meta no alcanzada" el martes no dice nada.
