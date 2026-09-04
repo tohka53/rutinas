@@ -29,7 +29,7 @@ import { StorageService } from './services/storage.service';
           <span class="mark">70.3</span>
           <div>
             <strong>Rutina de Miguel</strong>
-            <span class="dim">Camino al Gran Jaguar · Petén</span>
+            <span class="dim">Dos olímpicos · dos 70.3 · 60 semanas</span>
           </div>
         </div>
         <div class="cuentas">
@@ -67,7 +67,7 @@ import { StorageService } from './services/storage.service';
     <main class="wrap"><router-outlet /></main>
 
     <footer class="wrap dim">
-      Plan de 26 semanas · 7 sep 2026 → 7 mar 2027 · ritmos calibrados con tus datos de Strava.
+      Plan de 60 semanas · 7 sep 2026 → 31 oct 2027 · ritmos calibrados con tus datos de Strava.
       @if (api.conexion() === 'conectado') {
         Tu progreso se guarda en Supabase y se ve desde cualquier dispositivo.
       } @else {
@@ -142,7 +142,7 @@ export class App {
     { path: '', label: 'Hoy' },
     { path: 'semana', label: 'Semana' },
     { path: 'cumplimiento', label: 'Cumplimiento' },
-    { path: 'plan', label: 'Plan 26 sem' },
+    { path: 'plan', label: 'Plan 60 sem' },
     { path: 'nutricion', label: 'Nutrición' },
     { path: 'peso', label: 'Peso' },
     { path: 'carreras', label: 'Carreras' },

@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { PlanService, fechaLarga } from '../services/plan.service';
-import { PREDICCION } from '../data/nutricion.data';
+import { LOGICA_CALENDARIO } from '../data/carreras.data';
 
 @Component({
   selector: 'p-carreras',
@@ -18,9 +18,15 @@ import { PREDICCION } from '../data/nutricion.data';
             <span class="chip" [class.warn]="c.estado === 'objetivo'" [class.ok]="c.estado === 'hito'">
               {{ etiqueta[c.estado] }}
             </span>
+            @if (!c.confirmada) { <span class="chip">fecha estimada</span> }
             <h2 style="margin:.45rem 0 .15rem">{{ c.nombre }}</h2>
-            <span class="muted">{{ fechaLarga(c.fecha) }} · {{ c.lugar }}</span><br>
-            <span class="dim">{{ c.distancias }}</span>
+            <span class="muted">
+              @if (!c.confirmada) { ~ }{{ fechaLarga(c.fecha) }} · {{ c.lugar }}
+            </span><br>
+            <span class="dim">
+              {{ c.distancias }} · semana {{ c.semana }} del plan
+              @if (c.pesoEstimadoKg) { · llegás a ~{{ c.pesoEstimadoKg }} kg }
+            </span>
           </div>
           <div class="cuenta">
             @if (c.faltan >= 0) {
@@ -58,16 +64,21 @@ import { PREDICCION } from '../data/nutricion.data';
     }
 
     <div class="card">
-      <h2>La cuenta completa del Gran Jaguar</h2>
-      <p style="font-size:.9rem">
-        Nadar {{ pred.half.nado }} no te preocupa: en agosto hiciste 3500 m seguidos.
-        Correr {{ pred.half.corre }} tampoco: ya terminaste una media maratón.
-        Los {{ pred.half.bici }} de bici son el problema — tenés una sola salida registrada,
-        de 12 km. Todo el plan gira alrededor de esa brecha.
+      <h2>Por qué el calendario quedó así</h2>
+      <p class="dim" style="margin:.2rem 0 .8rem">
+        Cuatro carreras en catorce meses, con una lógica detrás. Para no rediscutirla cada mes.
       </p>
+      @for (l of logica; track l.punto) {
+        <div class="razon">
+          <strong>{{ l.punto }}</strong>
+          <span class="dim">{{ l.razon }}</span>
+        </div>
+      }
       <div class="nota">
-        Total proyectado {{ pred.half.total }}, con corte típico de 8:30.
-        Hay margen, pero se sostiene solo si las salidas largas del domingo no se caen.
+        Nadar 1.9 km no te preocupa: ya hiciste 4000 m seguidos. Correr 21 km tampoco:
+        ya terminaste una media maratón. Los 90 km de bici son toda la incógnita —
+        tu salida más larga registrada es de 19 km. Todo el calendario está ordenado
+        alrededor de esa única brecha.
       </div>
     </div>
   `,
@@ -82,13 +93,16 @@ import { PREDICCION } from '../data/nutricion.data';
     .seg { background: var(--surface-2); border-radius: 8px; padding: .4rem .55rem; }
     .seg .dim { display: block; font-size: .72rem; }
     .seg .mono { font-size: .95rem; font-weight: 600; }
+    .razon { border-left: 2px solid var(--nado); padding-left: .7rem; margin-bottom: .7rem; }
+    .razon strong { display: block; font-size: .88rem; margin-bottom: .15rem; }
+    .razon .dim { display: block; font-size: .84rem; line-height: 1.5; }
   `],
 })
 export class CarrerasPage {
   private plan = inject(PlanService);
   carreras = this.plan.carrerasOrdenadas;
   fechaLarga = fechaLarga;
-  pred = PREDICCION;
+  logica = LOGICA_CALENDARIO;
   etiqueta: Record<string, string> = {
     objetivo: 'Objetivo', preparatoria: 'Preparatoria', opcional: 'Opcional', hito: 'Hito',
   };

@@ -2,8 +2,13 @@ import { Component, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { StorageService } from '../services/storage.service';
 import { PlanService, iso, desdeIso, diasEntre, fechaCorta } from '../services/plan.service';
-import { CURVA_PESO, ANTROPOMETRIA } from '../data/nutricion.data';
-import { INICIO_PLAN } from '../data/plan.data';
+import { ANTROPOMETRIA } from '../data/nutricion.data';
+import { INICIO_PLAN, SEMANAS } from '../data/plan.data';
+
+// La curva objetivo sale del propio plan: una sola fuente de verdad. Si cambia
+// el macrociclo, la gráfica cambia con él.
+const CURVA = SEMANAS.map(s => ({ semana: s.n, kg: s.pesoObjetivoKg, lb: s.pesoObjetivoLb }));
+const TOTAL_SEMANAS = SEMANAS.length;
 
 const W = 720, H = 260, PAD_L = 42, PAD_R = 12, PAD_T = 14, PAD_B = 26;
 
@@ -13,8 +18,9 @@ const W = 720, H = 260, PAD_L = 42, PAD_R = 12, PAD_T = 14, PAD_B = 26;
   template: `
     <h1>Peso</h1>
     <p class="muted">
-      De {{ antro.pesoLb }} lb a {{ antro.metaLb }} lb en 26 semanas.
-      Son {{ perdidaTotal }} kg a un promedio de 0.70 kg por semana.
+      De {{ antro.pesoLb }} lb a {{ antro.metaLb }} lb. La curva cruza la meta en la
+      semana {{ semanaMeta }}; de ahí en adelante la prioridad deja de ser bajar y
+      pasa a ser rendir.
     </p>
 
     <div class="grid g4">
@@ -103,8 +109,10 @@ const W = 720, H = 260, PAD_L = 42, PAD_R = 12, PAD_T = 14, PAD_B = 26;
         <li><strong>Tres semanas planas = ajustar.</strong> Ahí sí bajamos 150 kcal al promedio diario.</li>
         <li><strong>Más de 1 kg por semana sostenido = comer más.</strong> A esa velocidad perdés músculo
             y las sesiones del domingo se te empiezan a caer.</li>
-        <li><strong>Las últimas 10 libras son las lentas.</strong> Está previsto: la curva pasa de
-            0.8 kg por semana al inicio a 0.6 al final.</li>
+        <li><strong>Las últimas 10 libras son las lentas.</strong> Está previsto: la curva pasa
+            de 0.8 kg por semana al inicio a 0.2 en los bloques de volumen alto.</li>
+        <li><strong>Después de abril se sostiene, no se persigue.</strong> Bajar durante un
+            bloque de 16 h semanales te cuesta sesiones, y las sesiones son la carrera.</li>
       </ul>
     </div>
   `,
@@ -130,6 +138,9 @@ export class PesoPage {
   fechaCorta = fechaCorta;
   W = W; H = H; padL = PAD_L; padR = PAD_R;
   perdidaTotal = +(ANTROPOMETRIA.pesoKg - ANTROPOMETRIA.metaKg).toFixed(1);
+  totalSemanas = TOTAL_SEMANAS;
+  /** Semana en que la curva cruza la meta de 240 lb. */
+  semanaMeta = CURVA.find(p => p.kg <= ANTROPOMETRIA.metaKg)?.semana ?? TOTAL_SEMANAS;
 
   fecha = signal<string>(iso(new Date()));
   kg = signal<number | null>(null);
@@ -143,7 +154,7 @@ export class PesoPage {
 
   private objetivoEn(sem: number): number {
     if (sem < 1) return ANTROPOMETRIA.pesoKg;
-    const p = CURVA_PESO[Math.min(sem, CURVA_PESO.length) - 1];
+    const p = CURVA[Math.min(sem, CURVA.length) - 1];
     return p.kg;
   }
 
@@ -158,10 +169,10 @@ export class PesoPage {
     +(((this.ultimo()?.kg ?? ANTROPOMETRIA.pesoKg)) - ANTROPOMETRIA.metaKg).toFixed(1));
 
   // --- escalas de la gráfica ---
-  private minKg = ANTROPOMETRIA.metaKg - 3;
+  private minKg = Math.min(...CURVA.map(p => p.kg)) - 3;
   private maxKg = ANTROPOMETRIA.pesoKg + 3;
   private x(sem: number) {
-    return PAD_L + (sem / 26) * (W - PAD_L - PAD_R);
+    return PAD_L + (sem / TOTAL_SEMANAS) * (W - PAD_L - PAD_R);
   }
   private y(kg: number) {
     const t = (kg - this.minKg) / (this.maxKg - this.minKg);
@@ -177,7 +188,7 @@ export class PesoPage {
   });
 
   ticksX = computed(() =>
-    [0, 4, 9, 12, 17, 22, 26].map(n => ({
+    [0, 9, 22, 32, 45, 59].map(n => ({
       n, x: +this.x(n).toFixed(1),
       label: n === 0 ? 'inicio' : 'S' + n,
     }))
@@ -185,14 +196,14 @@ export class PesoPage {
 
   lineaObjetivo = computed(() =>
     [`${this.x(0).toFixed(1)},${this.y(ANTROPOMETRIA.pesoKg).toFixed(1)}`]
-      .concat(CURVA_PESO.map(p => `${this.x(p.semana).toFixed(1)},${this.y(p.kg).toFixed(1)}`))
+      .concat(CURVA.map(p => `${this.x(p.semana).toFixed(1)},${this.y(p.kg).toFixed(1)}`))
       .join(' ')
   );
 
   puntosReales = computed(() =>
     this.registros().map(r => {
       const sem = Math.max(0, diasEntre(desdeIso(INICIO_PLAN), desdeIso(r.fecha)) / 7);
-      return { ...r, x: +this.x(Math.min(sem, 26)).toFixed(1), y: +this.y(r.kg).toFixed(1) };
+      return { ...r, x: +this.x(Math.min(sem, TOTAL_SEMANAS)).toFixed(1), y: +this.y(r.kg).toFixed(1) };
     })
   );
 
