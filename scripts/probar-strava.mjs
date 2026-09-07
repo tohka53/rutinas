@@ -177,7 +177,15 @@ const auth = new URL(r.body.url ?? 'http://x');
 ok('conectar devuelve URL de Strava', r.status === 200 && auth.host === 'www.strava.com');
 ok('usa el client_id guardado', auth.searchParams.get('client_id') === '12345',
    auth.searchParams.get('client_id') ?? '');
-ok('pide el scope activity:read_all', auth.searchParams.get('scope') === 'activity:read_all');
+// Los dos permisos, y hacen falta los dos: activity:read_all para las
+// actividades y profile:read_all para /athlete/zones. Sin el segundo la app
+// decia "sin zonas en Strava" teniendolas configuradas.
+{
+  const scope = (auth.searchParams.get('scope') ?? '').split(',');
+  ok('pide el scope de actividades', scope.includes('activity:read_all'), scope.join(','));
+  ok('y el de perfil, que es el que habilita las zonas',
+     scope.includes('profile:read_all'), scope.join(','));
+}
 ok('el redirect_uri apunta a /api/strava',
    auth.searchParams.get('redirect_uri') === 'https://app.test/api/strava',
    auth.searchParams.get('redirect_uri') ?? '');

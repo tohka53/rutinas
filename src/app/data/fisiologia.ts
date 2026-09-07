@@ -245,8 +245,15 @@ export interface AnalisisZonas {
   sinDatos: boolean;
   /** Cuántas actividades traen FC, sobre cuántas hay. */
   conFC: number; total: number;
-  /** El máximo que se ha visto de verdad. */
+  /**
+   * El máximo corroborado: el más alto que alcanzaron varias sesiones.
+   * Es el que se usa para todo lo demás.
+   */
   maxObservado: number | null;
+  /** La lectura más alta que existe, corroborada o no. */
+  maxAbsoluto: number | null;
+  /** true cuando la más alta se despega del resto y huele a pico del sensor. */
+  picoAislado: boolean;
   /** El máximo que asume la tabla configurada. */
   maxAsumido: number | null;
   /** Diferencia entre lo asumido y lo observado, en lpm. */
@@ -281,6 +288,45 @@ export const BRECHA_TOLERADA = 8;
  * distinguen. Construir el plan sobre la equivocada es peor que no tener tabla.
  * El módulo señala la incoherencia y remite al test de umbral, que sí se mide.
  */
+/** Cuántas sesiones tienen que llegar a un valor para tomarlo por bueno. */
+export const MIN_LECTURAS_MAX = 3;
+
+/** Con cuánta distancia sobre el resto una lectura se considera un pico suelto. */
+export const SALTO_PICO = 6;
+
+/**
+ * El máximo cardíaco que se puede creer, y el que solo se leyó una vez.
+ *
+ * Un sensor óptico de muñeca produce picos: se engancha con la cadencia, salta
+ * con un roce, pierde la señal y la recupera con un valor absurdo. Con 420
+ * actividades, que aparezca una lectura de 188 no significa que el corazón
+ * llegó a 188 — significa que hubo 420 oportunidades de registrar un artefacto.
+ *
+ * Y no es un detalle estético: el máximo es lo que calibra las zonas, decide si
+ * la tabla configurada está bien y entra en el umbral estimado. Una lectura
+ * suelta que se cuela ahí desplaza todas las prescripciones de intensidad.
+ *
+ * El criterio es simple: un máximo de verdad se alcanza más de una vez. Se toma
+ * el valor más alto que hayan alcanzado al menos `MIN_LECTURAS_MAX` sesiones.
+ * Con pocos datos no se recorta nada —recortar tres lecturas de cinco sería
+ * peor que el problema— y el valor absoluto se devuelve siempre, para que
+ * ninguna lectura quede escondida.
+ */
+export function maximoRobusto(valores: readonly number[]): {
+  corroborado: number | null; absoluto: number | null; picoAislado: boolean;
+} {
+  const v = valores.filter(x => typeof x === 'number' && Number.isFinite(x) && x > 0)
+    .sort((a, b) => b - a);
+  if (!v.length) return { corroborado: null, absoluto: null, picoAislado: false };
+
+  const absoluto = v[0];
+  if (v.length < MIN_LECTURAS_MAX * 3) {
+    return { corroborado: absoluto, absoluto, picoAislado: false };
+  }
+  const corroborado = v[MIN_LECTURAS_MAX - 1];
+  return { corroborado, absoluto, picoAislado: absoluto - corroborado >= SALTO_PICO };
+}
+
 /**
  * Strava dice de dónde salieron las zonas. Solo con `MaxHeartRate` tiene
  * sentido despejar qué máximo asumen: son porcentajes de uno.
@@ -309,7 +355,8 @@ export function analizarZonas(
 
   if (!conFC) {
     return {
-      sinDatos: true, conFC: 0, total, maxObservado: null, maxAsumido,
+      sinDatos: true, conFC: 0, total, maxObservado: null, maxAbsoluto: null,
+      picoAislado: false, maxAsumido,
       brecha: null, masDuras: [], horasPorZona: [], zonasVacias: [],
       veredicto: 'sin-datos',
       advertencias: ['Ninguna actividad tiene frecuencia cardíaca guardada. ' +
@@ -317,7 +364,13 @@ export function analizarZonas(
     };
   }
 
-  const maxObservado = Math.max(...conFCLista.map(a => a.fc_max as number));
+  const robusto = maximoRobusto(conFCLista.map(a => a.fc_max as number));
+  const maxAbsoluto = robusto.absoluto;
+  const picoAislado = robusto.picoAislado;
+  // Llegar acá con conFC > 0 garantiza un máximo, pero el tipo no lo sabe y el
+  // resto del cálculo resta contra él: un null silencioso daría NaN en la
+  // brecha y un veredicto inventado.
+  const maxObservado = robusto.corroborado ?? 0;
 
   const masDuras: SesionFC[] = [...conFCLista]
     .sort((a, b) => (b.fc_max as number) - (a.fc_max as number)
@@ -350,7 +403,8 @@ export function analizarZonas(
   if (!zonas?.length) {
     advertencias.push('No hay zonas configuradas en Strava para comparar.');
     return {
-      sinDatos: false, conFC, total, maxObservado, maxAsumido: null, brecha: null,
+      sinDatos: false, conFC, total, maxObservado, maxAbsoluto, picoAislado,
+      maxAsumido: null, brecha: null,
       masDuras, horasPorZona: [], zonasVacias: [], veredicto: 'sin-zonas', advertencias,
     };
   }
@@ -382,6 +436,13 @@ export function analizarZonas(
       'La salida es medir la FC de umbral: 30 min sostenidos, la media de los ' +
       'últimos 20 es tu LTHR. No exige ir al máximo.');
   }
+  if (picoAislado) {
+    advertencias.push(
+      `La lectura más alta del historial es ${maxAbsoluto} lpm, pero se despega ` +
+      `${(maxAbsoluto as number) - (maxObservado as number)} pulsaciones de la siguiente. ` +
+      `Se usa ${maxObservado}, que sí alcanzaron varias sesiones: un máximo de verdad ` +
+      'se repite, y un sensor de muñeca produce picos sueltos.');
+  }
   if (zonasVacias.length) {
     advertencias.push(
       `Nunca entrenaste en ${zonasVacias.length === 1 ? 'la zona' : 'las zonas'} ` +
@@ -389,8 +450,8 @@ export function analizarZonas(
   }
 
   return {
-    sinDatos: false, conFC, total, maxObservado, maxAsumido, brecha,
-    masDuras, horasPorZona, zonasVacias,
+    sinDatos: false, conFC, total, maxObservado, maxAbsoluto, picoAislado,
+    maxAsumido, brecha, masDuras, horasPorZona, zonasVacias,
     veredicto: desalineada ? 'desalineada' : 'coherente',
     advertencias,
   };

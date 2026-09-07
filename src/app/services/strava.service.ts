@@ -9,11 +9,17 @@ export type EstadoStrava = 'desconocido' | 'sin-configurar' | 'desconectado' | '
 
 /** Las zonas tal como las devuelve Strava: `max` viene en -1 en la última. */
 export interface ZonasStrava {
-  fc: { min: number; max: number }[] | null;
-  fcPersonalizadas: boolean | null;
+  fc?: { min: number; max: number }[] | null;
+  fcPersonalizadas?: boolean | null;
   /** 'MaxHeartRate' | 'Manual' | 'Custom' | … — de dónde salieron las zonas. */
-  fcOrigen: string | null;
-  potencia: { min: number; max: number }[] | null;
+  fcOrigen?: string | null;
+  potencia?: { min: number; max: number }[] | null;
+  /**
+   * Por qué no se pudieron leer. 'permiso' = falta profile:read_all en el
+   * scope de OAuth, y se arregla reautorizando; no es que no tenga zonas.
+   */
+  error?: 'permiso' | 'strava' | 'red';
+  detalle?: string;
 }
 
 @Injectable({ providedIn: 'root' })

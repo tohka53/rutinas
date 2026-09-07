@@ -33,6 +33,7 @@ const {
   vdotDe, estimarVO2max, analizarZonas, estimarLTHR, zonasRecomendadas,
   zonasDesde, maxImplicito, zonaDe, nivelVO2max, CORTES_MAX, CORTES_ZONAS,
   BRECHA_TOLERADA, derivadasDelMaximo, rangoEnDisciplina, NOMBRE_DISCIPLINA,
+  maximoRobusto, MIN_LECTURAS_MAX, SALTO_PICO,
   HISTORIAL_SEMILLA,
 } = m;
 
@@ -353,6 +354,54 @@ const act = (o) => ({
      rangoEnDisciplina(3, 8, 'nado').min === 0, String(rangoEnDisciplina(3, 8, 'nado').min));
   ok('los nombres estan completos',
      !!(NOMBRE_DISCIPLINA.corre && NOMBRE_DISCIPLINA.bici && NOMBRE_DISCIPLINA.nado));
+}
+
+// ============ 7e. un pico suelto del sensor no puede redefinir el maximo
+{
+  // El caso real: al traer las 440 actividades aparecio una lectura de 188,
+  // cuando sus esfuerzos mas duros —una media maraton de tres horas y el HIIT
+  // mas fuerte del trimestre— topan en 171. Un maximo de verdad se repite.
+  const conPico = [188, 171, 171, 171, 170, 169, 167, 167, 165, 160, 158, 155];
+  const r = maximoRobusto(conPico);
+
+  ok('el absoluto no se esconde', r.absoluto === 188, String(r.absoluto));
+  ok('pero el corroborado descarta el pico', r.corroborado === 171, String(r.corroborado));
+  ok('y se marca como pico aislado', r.picoAislado === true, String(r.picoAislado));
+
+  // Si el maximo alto se repite, no es pico y se respeta.
+  const real = maximoRobusto([188, 187, 186, 171, 170, 169, 167, 165, 160, 158, 155, 150]);
+  ok('un maximo alto que se repite si se toma por bueno', real.corroborado === 186,
+     String(real.corroborado));
+  ok('y no se marca como pico', real.picoAislado === false, String(real.picoAislado));
+
+  // Con pocos datos recortar seria peor que el problema.
+  const pocos = maximoRobusto([188, 171, 165]);
+  ok('con pocas lecturas no se recorta nada', pocos.corroborado === 188,
+     String(pocos.corroborado));
+  ok('y no se acusa de pico', pocos.picoAislado === false);
+
+  ok('sin lecturas devuelve null', maximoRobusto([]).corroborado === null);
+  ok('los ceros y basura se filtran',
+     maximoRobusto([0, -5, NaN, 170, 169, 168, 167, 166, 165, 164, 163, 162]).absoluto === 170,
+     String(maximoRobusto([0, -5, NaN, 170, 169, 168, 167, 166, 165, 164, 163, 162]).absoluto));
+
+  // Y lo que importa: el pico no debe mover el veredicto de las zonas.
+  const hist = [];
+  for (const fc of conPico) {
+    hist.push(act({ f: '2026-08-23', m: 10000, s: 3000, fcm: fc - 15, fcx: fc }));
+  }
+  const zonas = [
+    { min: 0, max: 139 }, { min: 140, max: 151 }, { min: 152, max: 159 },
+    { min: 160, max: 169 }, { min: 170, max: null },
+  ];
+  const a = analizarZonas(hist, zonas, 'Manual');
+  ok('el analisis usa el corroborado, no el pico', a.maxObservado === 171,
+     String(a.maxObservado));
+  ok('pero reporta el absoluto', a.maxAbsoluto === 188, String(a.maxAbsoluto));
+  ok('y lo explica en las advertencias',
+     a.advertencias.some(x => /pico|se despega/i.test(x)), a.advertencias.join(' | '));
+  ok('con el corroborado la tabla sale coherente', a.veredicto === 'coherente',
+     `${a.veredicto}, brecha ${a.brecha}`);
 }
 
 // ============================ 8. "sin dato" nunca se confunde con cero

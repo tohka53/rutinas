@@ -214,7 +214,14 @@ async function traerZonas(token) {
     const r = await fetch(`${STRAVA_API}/athlete/zones`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!r.ok) return null;
+    // Un fallo se guarda, no se traga. Devolver null a secas hacía que la app
+    // dijera "no hay zonas configuradas" cuando el problema era que faltaba el
+    // permiso para leerlas — dos cosas muy distintas, y la segunda se arregla
+    // reautorizando en diez segundos.
+    if (r.status === 401 || r.status === 403) {
+      return { error: 'permiso', detalle: 'Falta el permiso profile:read_all.' };
+    }
+    if (!r.ok) return { error: 'strava', detalle: `Strava respondió ${r.status}.` };
     const z = await r.json();
     return {
       fc: z?.heart_rate?.zones ?? null,
@@ -227,7 +234,9 @@ async function traerZonas(token) {
         ?? z?.heart_rate_zone_source ?? null,
       potencia: z?.power?.zones ?? null,
     };
-  } catch { return null; }
+  } catch (e) {
+    return { error: 'red', detalle: String(e?.message ?? e) };
+  }
 }
 
 function leerCuerpo(req) {
@@ -391,7 +400,10 @@ export default async function handler(req, res) {
       auth.searchParams.set('redirect_uri', `${origen}/api/strava`);
       auth.searchParams.set('response_type', 'code');
       auth.searchParams.set('approval_prompt', 'auto');
-      auth.searchParams.set('scope', 'activity:read_all');
+      // `profile:read_all` es lo que habilita /athlete/zones. Sin él, la
+      // llamada a las zonas devuelve 401 y la app dice "sin zonas en Strava"
+      // teniéndolas configuradas. Pedirlo obliga a reautorizar una vez.
+      auth.searchParams.set('scope', 'activity:read_all,profile:read_all');
       auth.searchParams.set('state', estado);
       return res.status(200).json({ url: auth.toString() });
     }
@@ -437,7 +449,7 @@ export default async function handler(req, res) {
       await db.guardarConfig({
         strava_ultimo_sync: new Date().toISOString(),
         strava_ultimo_epoch: ahora,
-        ...(zonas ? { strava_zonas: JSON.stringify(zonas) } : {}),
+        ...(zonas ? { strava_zonas: JSON.stringify(zonas) } : {}),   // el error tambien se guarda
       });
 
       const porDisciplina = filas.reduce((a, f) => ((a[f.disciplina] = (a[f.disciplina] ?? 0) + 1), a), {});

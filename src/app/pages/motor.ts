@@ -110,6 +110,17 @@ import {
           {{ strava.sincronizando() ? 'Trayendo…' : 'Traer todo de nuevo' }}
         </button>
         @if (strava.mensaje()) { <p class="dim">{{ strava.mensaje() }}</p> }
+      } @else if (faltaPermiso()) {
+        <p class="vacio">
+          Tus zonas están configuradas en Strava, pero esta app no tiene permiso
+          para leerlas.
+        </p>
+        <p class="dim">
+          <code>/athlete/zones</code> exige el permiso <code>profile:read_all</code>,
+          y la autorización original solo pidió el de actividades. Se arregla
+          reautorizando una vez — no se pierde nada de lo ya sincronizado.
+        </p>
+        <button class="primary" (click)="reautorizar()">Reautorizar en Strava</button>
       } @else {
         <div class="contraste">
           <div class="lado">
@@ -125,6 +136,9 @@ import {
           <div class="lado real">
             <span class="l">Máximo que llegaste a hacer</span>
             <span class="n">{{ zonas().maxObservado ?? '—' }}</span>
+            @if (zonas().picoAislado) {
+              <span class="pico">pico suelto de {{ zonas().maxAbsoluto }} descartado</span>
+            }
           </div>
         </div>
         <span class="l centro">
@@ -268,6 +282,7 @@ import {
                     font-variant-numeric: tabular-nums; color: var(--muted); }
     .contraste .real .n { color: var(--nado); }
     .contraste .vs { align-self: center; font-size: .72rem; color: var(--muted); }
+    .contraste .pico { font-size: .68rem; color: var(--warn); line-height: 1.25; }
     .l.centro { text-align: center; }
 
     table.mini { width: 100%; border-collapse: collapse; font-size: .8rem; margin-top: .3rem; }
@@ -350,6 +365,18 @@ export class MotorPage {
     if (!z?.length) return null;
     return z.map(x => ({ min: x.min, max: x.max > 0 ? x.max : null }));
   });
+
+  /**
+   * Por que no hay zonas, cuando no las hay.
+   *
+   * "No tenes zonas configuradas" y "no puedo leer tus zonas" son cosas
+   * distintas y la segunda tiene arreglo en diez segundos. La app decia la
+   * primera teniendolas puestas, porque /athlete/zones exige el permiso
+   * profile:read_all y la autorizacion original solo pidio activity:read_all.
+   */
+  readonly faltaPermiso = computed(() => this.strava.zonas()?.error === 'permiso');
+
+  async reautorizar() { await this.strava.conectar(); }
 
   readonly zonas = computed(() => analizarZonas(
     this.store.actividades(), this.zonasConfiguradas(), this.strava.zonas()?.fcOrigen));
