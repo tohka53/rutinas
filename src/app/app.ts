@@ -142,6 +142,7 @@ export class App {
     { path: '', label: 'Hoy' },
     { path: 'semana', label: 'Semana' },
     { path: 'cumplimiento', label: 'Cumplimiento' },
+    { path: 'rendimiento', label: 'Rendimiento' },
     { path: 'plan', label: 'Plan 60 sem' },
     { path: 'nutricion', label: 'Nutrición' },
     { path: 'peso', label: 'Peso' },
