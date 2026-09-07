@@ -152,8 +152,38 @@ import {
     </div>
   </div>
 
+  <!-- --------------------- a que pulso entrenar, con las zonas que ya hay -->
+  @if (zonas().veredicto === 'coherente' && zonaBase(); as zb) {
+    <div class="card propuesta">
+      <h2>A qué pulso entrenar</h2>
+      <p class="dim">
+        Tus zonas de Strava describen bien lo que entrenás, así que no hay nada que
+        cambiar. Lo único que hace falta es traducirlas al plan.
+      </p>
+      <div class="traduccion">
+        <div class="linea">
+          <span class="etq">Las sesiones que el plan llama <strong>Z2</strong></span>
+          <strong class="rango">{{ zb.min }} – {{ zb.max }}</strong>
+        </div>
+        <p class="dim">
+          La bici larga del domingo, el nado continuo, el trote suave. Es donde va la
+          mayor parte del plan y el error más común es pasarse: si no podés hablar en
+          frases completas, vas rápido, diga lo que diga la pantalla.
+        </p>
+        <div class="linea">
+          <span class="etq">Umbral, para series y bloques de calidad</span>
+          <strong class="rango">{{ lthr().lthr ? lthr().lthr! - 4 : '—' }} – {{ lthr().lthr ?? '—' }}</strong>
+        </div>
+      </div>
+      <p class="aviso">
+        El test de 30 minutos de la semana 2 mide el umbral en vez de estimarlo, y de
+        paso saca el FTP. Es la única sesión que hace falta para dejar de aproximar.
+      </p>
+    </div>
+  }
+
   <!-- ------------------------------------- qué poner en Strava -->
-  @if (recomendadas().length) {
+  @if (recomendadas().length && zonas().veredicto !== 'coherente') {
     <div class="card propuesta">
       <h2>Qué poner en Strava</h2>
       <p class="dim">
@@ -231,6 +261,15 @@ import {
     .vacio { font-size: .85rem; margin: .2rem 0; }
     details summary { font-size: .78rem; color: var(--muted); cursor: pointer; }
 
+    .traduccion { border: 1px solid var(--line); border-radius: 8px; padding: .55rem .65rem; }
+    .traduccion .linea { display: flex; align-items: baseline; justify-content: space-between;
+                         gap: 1rem; flex-wrap: wrap; }
+    .traduccion .etq { font-size: .85rem; color: var(--muted); }
+    .traduccion .rango { font-size: 1.35rem; font-variant-numeric: tabular-nums; color: var(--nado); }
+    .traduccion p { margin: .3rem 0 .6rem; font-size: .8rem; line-height: 1.45; }
+    .traduccion .linea + .linea { border-top: 1px solid var(--line); padding-top: .5rem; }
+    .traduccion .linea + .linea .rango { color: var(--corre); font-size: 1.1rem; }
+
     .propuesta { margin-top: .7rem; }
     .propuesta h2 { margin: 0 0 .2rem; }
     .propuesta .rango { font-weight: 650; font-size: .95rem; white-space: nowrap; }
@@ -296,6 +335,27 @@ export class MotorPage {
   readonly recomendadas = computed(() => {
     const l = this.lthr().lthr;
     return l ? zonasRecomendadas(l) : [];
+  });
+
+  /**
+   * A que pulso hacer las sesiones que el plan llama "Z2".
+   *
+   * Hay dos convenciones de zonas y no dicen lo mismo. La de Strava reparte
+   * porcentajes del maximo y su Z2 es la banda aerobica ancha —donde de verdad
+   * va el fondo—; la de Friel reparte sobre el umbral y ahi el fondo cae entre
+   * Z1 y Z2, con una Z2 estrecha. El plan usa "Z2" en el primer sentido.
+   *
+   * Asi que cuando las zonas de Strava ya estan bien calibradas, lo util no es
+   * proponerle otra tabla: es decirle a que pulso hacer la salida del domingo,
+   * leyendo el numero de la tabla que ya tiene puesta. Se toma la Z2 de Strava
+   * tal cual, que es exactamente lo que el plan quiere decir.
+   */
+  readonly zonaBase = computed(() => {
+    const z = this.zonasConfiguradas();
+    if (!z || z.length < 2) return null;
+    const base = z[1];
+    if (base.max === null) return null;
+    return { min: base.min, max: base.max };
   });
 
   /** Las zonas de Strava con el tiempo que se paso en cada una. */

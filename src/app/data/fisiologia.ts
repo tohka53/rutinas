@@ -161,6 +161,23 @@ export const NOMBRES_ZONA = ['Z1 · Recuperación', 'Z2 · Aeróbico', 'Z3 · Te
 
 export interface Zona { n: number; nombre: string; min: number; max: number | null; }
 
+/**
+ * En qué zona cae una frecuencia. Devuelve el índice, o -1 si no hay zonas.
+ *
+ * Se busca desde arriba por el `min` y no desde abajo por el `max`, y no es un
+ * capricho: los límites de Strava son enteros —la Z2 termina en 136 y la Z3
+ * empieza en 137— pero las frecuencias medias llegan con decimal. Un 136.5 no
+ * es `<= 136` ni `>= 137`, así que con la comparación ingenua no caía en
+ * ninguna zona y esa sesión desaparecía del reparto de horas sin avisar.
+ *
+ * Preguntando "¿alcanzó el piso de esta zona?" no quedan huecos posibles: 136.5
+ * todavía no llegó a 137, así que es Z2, que es como se leen las zonas.
+ */
+export function zonaDe(fc: number, zonas: readonly ZonaConfigurada[]): number {
+  for (let i = zonas.length - 1; i >= 0; i--) if (fc >= zonas[i].min) return i;
+  return zonas.length ? 0 : -1;
+}
+
 /** Construye las cinco zonas a partir de un ancla y sus cortes. */
 export function zonasDesde(ancla: number, cortes: readonly number[]): Zona[] {
   const limites = cortes.map(c => Math.round(ancla * c));
@@ -274,7 +291,7 @@ export function analizarZonas(
     for (const a of actividades) {
       const fc = a.fc_media;
       if (typeof fc !== 'number' || !(fc > 0)) continue;
-      const i = zonas.findIndex(z => fc >= z.min && (z.max === null || fc <= z.max));
+      const i = zonaDe(fc, zonas);
       if (i >= 0) horasPorZona[i] += a.segundos / 3600;
     }
   }

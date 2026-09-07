@@ -31,7 +31,7 @@ await rm(ENTRADA); await rm(SALIDA);
 
 const {
   vdotDe, estimarVO2max, analizarZonas, estimarLTHR, zonasRecomendadas,
-  zonasDesde, maxImplicito, nivelVO2max, CORTES_MAX, CORTES_ZONAS,
+  zonasDesde, maxImplicito, zonaDe, nivelVO2max, CORTES_MAX, CORTES_ZONAS,
   BRECHA_TOLERADA, HISTORIAL_SEMILLA,
 } = m;
 
@@ -208,6 +208,62 @@ const act = (o) => ({
   ok('una brecha chica se tolera', Math.abs(a.brecha) <= BRECHA_TOLERADA, String(a.brecha));
 }
 
+// ============= 7b. las zonas que Miguel puso el 7 sep, contra sus datos reales
+{
+  // Cambió el máximo de Strava y la tabla se recalculó sola. Esta prueba fija
+  // que el cambio se detecta como una mejora y no como un problema nuevo.
+  const puestas = [
+    { min: 0, max: 109 }, { min: 110, max: 136 }, { min: 137, max: 150 },
+    { min: 151, max: 163 }, { min: 164, max: null },
+  ];
+  const antes = [
+    { min: 0, max: 123 }, { min: 124, max: 153 }, { min: 154, max: 168 },
+    { min: 169, max: 183 }, { min: 184, max: null },
+  ];
+  const hist = [
+    act({ f: '2026-08-23', m: 21538, s: 10645, fcm: 159.5, fcx: 171 }),
+    act({ f: '2026-08-12', d: 'fuerza', s: 3684, fcm: 155.5, fcx: 171 }),
+    act({ f: '2026-08-09', m: 6063, s: 2691, fcm: 157.9, fcx: 167 }),
+    act({ f: '2026-08-09', d: 'nado', m: 3500, s: 4609, fcm: 136.5, fcx: 156 }),
+  ];
+
+  ok('la tabla vieja implicaba 192', cerca(maxImplicito(antes), 192, 1.5), String(maxImplicito(antes)));
+  ok('la nueva implica ~170', cerca(maxImplicito(puestas), 170, 1.5), String(maxImplicito(puestas)));
+
+  const a = analizarZonas(hist, puestas);
+  const b = analizarZonas(hist, antes);
+  ok('con la tabla nueva el veredicto pasa a coherente',
+     b.veredicto === 'desalineada' && a.veredicto === 'coherente',
+     `${b.veredicto} -> ${a.veredicto}`);
+  ok('la brecha cae de 21 lpm a 1', Math.abs(a.brecha) <= 1 && b.brecha >= 20,
+     `${b.brecha} -> ${a.brecha}`);
+
+  // El punto practico: la Z2 de Strava es la banda aerobica ancha, que es lo
+  // que el plan quiere decir con "Z2". El nado largo suave cae justo ahi.
+  const zona = fc => zonaDe(fc, puestas) + 1;
+  ok('el nado largo suave (136.5) cae en la Z2 de Strava', zona(136.5) === 2, `Z${zona(136.5)}`);
+  ok('la media maratón (159.5) cae en Z4', zona(159.5) === 4, `Z${zona(159.5)}`);
+  ok('el máximo registrado (171) cae en Z5', zona(171) === 5, `Z${zona(171)}`);
+  ok('la Z2 de Strava es una banda ancha, usable para el fondo',
+     puestas[1].max - puestas[1].min >= 20,
+     `${puestas[1].min}-${puestas[1].max} (${puestas[1].max - puestas[1].min} lpm)`);
+
+  // Los limites de Strava son enteros y las FC medias llegan con decimal: un
+  // 136.5 no es <= 136 ni >= 137. Con la comparacion ingenua esa sesion no
+  // caia en ninguna zona y sus horas desaparecian del reparto sin avisar.
+  const total = a.horasPorZona.reduce((x, y) => x + y, 0);
+  const esperado = hist.reduce((x, y) => x + y.segundos / 3600, 0);
+  ok('ninguna hora se pierde en el hueco entre dos zonas', cerca(total, esperado, 0.02),
+     `${total.toFixed(2)} vs ${esperado.toFixed(2)}`);
+  for (const fc of [136.4, 136.5, 136.9, 137, 109.5, 163.5, 0, 250]) {
+    ok(`una FC de ${fc} cae en alguna zona`, zonaDe(fc, puestas) >= 0, `Z${zonaDe(fc, puestas) + 1}`);
+  }
+  ok('136.5 todavia no llego a 137, asi que es Z2', zonaDe(136.5, puestas) === 1,
+     `Z${zonaDe(136.5, puestas) + 1}`);
+  ok('137 exacto ya es Z3', zonaDe(137, puestas) === 2, `Z${zonaDe(137, puestas) + 1}`);
+  ok('sin zonas devuelve -1', zonaDe(150, []) === -1, String(zonaDe(150, [])));
+}
+
 // ============================ 8. "sin dato" nunca se confunde con cero
 {
   const a = analizarZonas([
@@ -291,7 +347,7 @@ const act = (o) => ({
 
   // El contraste que justifica la propuesta: con la tabla vieja su media
   // maratón de tres horas caía en Z3 ("tempo"), que no describe una carrera.
-  const zona = fc => z.findIndex(x => fc >= x.min && (x.max === null || fc <= x.max)) + 1;
+  const zona = fc => zonaDe(fc, z) + 1;
   ok('la media maratón (159.5) cae en Z4, no en Z3', zona(159.5) === 4, `Z${zona(159.5)}`);
   ok('el nado largo suave (136.5) cae en Z1-Z2', zona(136.5) <= 2, `Z${zona(136.5)}`);
   ok('el máximo registrado (171) cae en Z5', zona(171) === 5, `Z${zona(171)}`);
