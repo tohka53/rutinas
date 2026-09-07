@@ -44,6 +44,39 @@ export function vdotDe(metros: number, segundos: number): number | null {
   return vdot > 0 && Number.isFinite(vdot) ? vdot : null;
 }
 
+/**
+ * El tiempo que predice un VDOT para una distancia dada, en segundos.
+ *
+ * Es la inversa de `vdotDe`, y hace falta para comparar peras con peras: su
+ * mejor marca es una media maratón a 8:14/km, y el objetivo del olímpico es un
+ * 10 km a 7:12/km. Enfrentar esos dos números directamente dice que le falta un
+ * 13 %, cuando buena parte de la diferencia es solo que 21 km se corren más
+ * lento que 10. El VDOT es exactamente lo que traduce entre distancias.
+ *
+ * Las ecuaciones de Daniels no se despejan a mano, así que se busca por
+ * bisección. Convergen rápido y monótonamente: más tiempo, menos VDOT.
+ */
+export function tiempoParaDistancia(vdot: number, metros: number): number | null {
+  if (!(vdot > 0) || !(metros > 0)) return null;
+
+  // Los nombres son por TIEMPO, no por ritmo: `tCorto` es el tiempo pequeño,
+  // que corresponde a ir rápido. Mezclar las dos lecturas es lo que invierte
+  // la búsqueda sin que se note — el resultado sale plausible pero mal.
+  let tCorto = (metros / 1000) * 120;    // 2:00 /km, más rápido que nadie
+  let tLargo = (metros / 1000) * 900;    // 15:00 /km, más lento que caminar
+
+  // Más tiempo, menos VDOT: la función es monótona y la bisección converge.
+  for (let i = 0; i < 60; i++) {
+    const medio = (tCorto + tLargo) / 2;
+    const v = vdotDe(metros, medio);
+    if (v === null) return null;
+    if (v > vdot) tCorto = medio;        // fue demasiado rápido: dar más tiempo
+    else tLargo = medio;
+  }
+  const t = (tCorto + tLargo) / 2;
+  return Number.isFinite(t) && t > 0 ? t : null;
+}
+
 /** Distancia mínima para que un VDOT signifique algo. Menos es ruido. */
 export const METROS_MINIMOS_VDOT = 3000;
 
