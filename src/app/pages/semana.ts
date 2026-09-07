@@ -185,6 +185,7 @@ import { TIPOS_DIA } from '../data/nutricion.data';
                       [attr.aria-expanded]="abierta(d.fecha, s.i)">
                 <span class="chip" [class]="'chip ' + s.disciplina">{{ s.disciplina }}</span>
                 <span class="tit">{{ s.titulo }}</span>
+                @if (s.disciplina === 'fuerza' && d.wod) { <span class="vol">WOD listo</span> }
                 @if (s.vol) { <span class="vol">{{ s.vol }}</span> }
                 <span class="dim min">{{ s.min }}′ · {{ s.zona }}</span>
                 <span class="flecha" [class.girada]="abierta(d.fecha, s.i)">▸</span>
@@ -192,7 +193,13 @@ import { TIPOS_DIA } from '../data/nutricion.data';
             </div>
             @if (abierta(d.fecha, s.i)) {
               <div class="detalle">
-                <ul class="pasos">@for (p of s.pasos; track $index) { <li>{{ p }}</li> }</ul>
+                @if (s.disciplina === 'fuerza' && d.wod) {
+                  <!-- Con el WOD del día ya acomodado, los pasos genéricos
+                       ("pasame el WOD") sobran y además se contradicen. -->
+                  <pre class="wod">{{ d.wod }}</pre>
+                } @else {
+                  <ul class="pasos">@for (p of s.pasos; track $index) { <li>{{ p }}</li> }</ul>
+                }
                 @if (s.nota) { <div class="nota">{{ s.nota }}</div> }
               </div>
             }
@@ -221,7 +228,7 @@ import { TIPOS_DIA } from '../data/nutricion.data';
           </div>
         }
 
-        @if (d.crossfit && !d.todoHecho) {
+        @if (d.crossfit && !d.todoHecho && !d.wod) {
           <p class="dim" style="margin:.5rem 0 0">
             CrossFit esta semana: {{ sem().crossfitDias }} días. Pasame los WOD y los acomodo.
           </p>
@@ -300,6 +307,8 @@ import { TIPOS_DIA } from '../data/nutricion.data';
     .flecha.girada { transform: rotate(90deg); }
     .detalle { padding: 0 0 .7rem 2rem; }
     .detalle .pasos { margin-top: 0; }
+    .detalle .wod { margin: 0; white-space: pre-wrap; font-family: var(--mono);
+                    font-size: .78rem; line-height: 1.55; overflow-x: auto; }
     .derecha { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
     .listo { margin: .5rem 0 0; font-size: .85rem; color: var(--ok); }
     .hechas { margin-top: .5rem; padding-top: .5rem; border-top: 1px dashed var(--line); }
@@ -339,6 +348,8 @@ export class SemanaPage {
         ...d, fecha, sesiones, hechas, pendientes,
         todoHecho: sesiones.length > 0 && pendientes.length === 0,
         crossfit: d.sesiones.some(x => x.disciplina === 'fuerza'),
+        // El WOD del box, ya acomodado contra el plan. Vive en rutina_wod.
+        wod: (this.store.estado().wods[fecha] ?? '').trim(),
       };
     });
   });
