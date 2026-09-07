@@ -11,6 +11,8 @@ export type EstadoStrava = 'desconocido' | 'sin-configurar' | 'desconectado' | '
 export interface ZonasStrava {
   fc: { min: number; max: number }[] | null;
   fcPersonalizadas: boolean | null;
+  /** 'MaxHeartRate' | 'Manual' | 'Custom' | … — de dónde salieron las zonas. */
+  fcOrigen: string | null;
   potencia: { min: number; max: number }[] | null;
 }
 

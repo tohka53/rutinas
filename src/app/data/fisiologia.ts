@@ -248,9 +248,18 @@ export const BRECHA_TOLERADA = 8;
  * distinguen. Construir el plan sobre la equivocada es peor que no tener tabla.
  * El módulo señala la incoherencia y remite al test de umbral, que sí se mide.
  */
+/**
+ * Strava dice de dónde salieron las zonas. Solo con `MaxHeartRate` tiene
+ * sentido despejar qué máximo asumen: son porcentajes de uno.
+ */
+export function derivadasDelMaximo(origen: string | null | undefined): boolean {
+  return (origen ?? 'MaxHeartRate') === 'MaxHeartRate';
+}
+
 export function analizarZonas(
   actividades: readonly Actividad[],
   zonas: readonly ZonaConfigurada[] | null,
+  origen?: string | null,
 ): AnalisisZonas {
   const total = actividades.length;
   const conFCLista = actividades.filter(
@@ -258,7 +267,12 @@ export function analizarZonas(
   const conFC = conFCLista.length;
 
   const advertencias: string[] = [];
-  const maxAsumido = zonas?.length ? maxImplicito(zonas) : null;
+  // Solo se despeja un máximo si las zonas SON porcentajes de uno. Puestas a
+  // mano, despejarlo igual devuelve un número que nadie configuró —para las
+  // zonas manuales de Miguel daba 191— y con él la app declararía mal
+  // calibrada una tabla que está bien.
+  const porMaximo = derivadasDelMaximo(origen);
+  const maxAsumido = zonas?.length && porMaximo ? maxImplicito(zonas) : null;
 
   if (!conFC) {
     return {
@@ -308,10 +322,21 @@ export function analizarZonas(
     };
   }
 
-  const brecha = maxAsumido === null ? null : maxAsumido - maxObservado;
+  // Con zonas manuales no hay máximo que comparar, así que la pregunta cambia:
+  // ¿la zona más alta es alcanzable? Si su piso está muy por encima de lo que
+  // llegó a hacer, esa zona no existe en la práctica y la tabla vuelve a estar
+  // describiendo a otra persona — que es el mismo defecto por otra vía.
+  const techoZona = zonas?.length ? zonas[zonas.length - 1].min : null;
+  const brecha = maxAsumido !== null ? maxAsumido - maxObservado
+    : techoZona !== null ? techoZona - maxObservado
+    : null;
   const desalineada = brecha !== null && brecha > BRECHA_TOLERADA;
 
-  if (desalineada) {
+  if (desalineada && !porMaximo) {
+    advertencias.push(
+      `La zona más alta arranca en ${techoZona} lpm y en ${conFC} actividades nunca ` +
+      `pasaste de ${maxObservado}. Tal como está, esa zona no se puede alcanzar.`);
+  } else if (desalineada) {
     advertencias.push(
       `La tabla asume un máximo de ${maxAsumido} lpm y en ${conFC} actividades nunca ` +
       `pasaste de ${maxObservado}. Las zonas altas quedan fuera de alcance y lo duro ` +
@@ -444,6 +469,41 @@ export const CORTES_ZONAS = [0.85, 0.92, 0.97, 1.03] as const;
 
 export function zonasRecomendadas(lthr: number): Zona[] {
   return zonasDesde(lthr, CORTES_ZONAS);
+}
+
+/**
+ * Cuánto más baja late el corazón en cada disciplina, a igual esfuerzo.
+ *
+ * Es el detalle que arruina una tabla de zonas única, y no es teoría: su nado
+ * largo de 3,500 m promedió 136.5 lpm y su media maratón de tres horas, 159.5.
+ * Las dos fueron esfuerzos aeróbicos sostenidos y largos; 23 pulsaciones de
+ * diferencia no las explica el esfuerzo, las explica la disciplina.
+ *
+ * Nadando el cuerpo está horizontal —el corazón no pelea contra la gravedad—,
+ * el agua enfría, y trabaja menos masa muscular. En la bici uno va sentado y
+ * las piernas no absorben impactos. Corriendo se carga el peso entero en cada
+ * zancada, y a 127 kg eso se nota.
+ *
+ * Los desfases son los que usa cualquier entrenador de triatlón y son
+ * aproximados a propósito: sirven para saber que la Z2 de la bici no es el
+ * mismo número que la de correr, no para acertarle a la pulsación.
+ */
+export const DESFASE_DISCIPLINA: Record<'corre' | 'bici' | 'nado', number> = {
+  corre: 0,
+  bici: -7,
+  nado: -12,
+};
+
+export const NOMBRE_DISCIPLINA: Record<'corre' | 'bici' | 'nado', string> = {
+  corre: 'Corriendo', bici: 'En bici', nado: 'Nadando',
+};
+
+/** Traslada un rango de pulsaciones de correr a otra disciplina. */
+export function rangoEnDisciplina(
+  min: number, max: number, disciplina: 'corre' | 'bici' | 'nado',
+): { min: number; max: number } {
+  const d = DESFASE_DISCIPLINA[disciplina];
+  return { min: Math.max(0, min + d), max: Math.max(0, max + d) };
 }
 
 /** Qué se entrena en cada zona, para que la tabla se pueda usar sin traducir. */

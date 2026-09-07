@@ -7,6 +7,7 @@ import { mmss, etiquetaSemana } from '../data/rendimiento';
 import {
   estimarVO2max, analizarZonas, estimarLTHR, zonasRecomendadas,
   nivelVO2max, PARA_QUE_SIRVE, VENTANA_VDOT_DIAS,
+  NOMBRE_DISCIPLINA, rangoEnDisciplina,
   type ZonaConfigurada,
 } from '../data/fisiologia';
 
@@ -112,8 +113,13 @@ import {
       } @else {
         <div class="contraste">
           <div class="lado">
-            <span class="l">Máximo que asume Strava</span>
-            <span class="n">{{ zonas().maxAsumido ?? '—' }}</span>
+            @if (zonas().maxAsumido !== null) {
+              <span class="l">Máximo que asume Strava</span>
+              <span class="n">{{ zonas().maxAsumido }}</span>
+            } @else {
+              <span class="l">La zona más alta arranca en</span>
+              <span class="n">{{ pisoZonaAlta() ?? '—' }}</span>
+            }
           </div>
           <span class="vs">vs</span>
           <div class="lado real">
@@ -123,6 +129,7 @@ import {
         </div>
         <span class="l centro">
           en {{ zonas().conFC }} de {{ zonas().total }} actividades con pulsómetro
+          @if (zonas().maxAsumido === null) { · zonas puestas a mano }
         </span>
 
         @if (zonas().horasPorZona.length) {
@@ -160,19 +167,33 @@ import {
         Tus zonas de Strava describen bien lo que entrenás, así que no hay nada que
         cambiar. Lo único que hace falta es traducirlas al plan.
       </p>
+      <p class="dim">
+        <strong>Z2 no es el mismo número en las tres.</strong> A igual esfuerzo el
+        corazón late más bajo nadando —cuerpo horizontal, agua fría, menos masa
+        muscular— y algo más bajo en bici que corriendo. Tu nado largo de 3,500 m
+        promedió 136 y tu media maratón 159: las dos fueron aeróbicas y sostenidas,
+        y esas 23 pulsaciones son la disciplina, no el esfuerzo.
+      </p>
+
+      <div class="traduccion">
+        @for (d of z2PorDisciplina(); track d.clave) {
+          <div class="linea">
+            <span class="etq">{{ d.icono }} {{ d.nombre }}</span>
+            <strong class="rango" [class]="'rango ' + d.clave">{{ d.min }} – {{ d.max }}</strong>
+          </div>
+        }
+      </div>
+
+      <p class="dim">
+        Ahí van la bici larga del domingo, el nado continuo y el trote suave — la mayor
+        parte del plan. El error más común es pasarse: si no podés hablar en frases
+        completas, vas rápido, diga lo que diga la pantalla.
+      </p>
+
       <div class="traduccion">
         <div class="linea">
-          <span class="etq">Las sesiones que el plan llama <strong>Z2</strong></span>
-          <strong class="rango">{{ zb.min }} – {{ zb.max }}</strong>
-        </div>
-        <p class="dim">
-          La bici larga del domingo, el nado continuo, el trote suave. Es donde va la
-          mayor parte del plan y el error más común es pasarse: si no podés hablar en
-          frases completas, vas rápido, diga lo que diga la pantalla.
-        </p>
-        <div class="linea">
-          <span class="etq">Umbral, para series y bloques de calidad</span>
-          <strong class="rango">{{ lthr().lthr ? lthr().lthr! - 4 : '—' }} – {{ lthr().lthr ?? '—' }}</strong>
+          <span class="etq">Umbral corriendo, para series y bloques de calidad</span>
+          <strong class="rango corre">{{ zonaUmbral()?.min ?? '—' }} – {{ zonaUmbral()?.max ?? '—' }}</strong>
         </div>
       </div>
       <p class="aviso">
@@ -266,9 +287,12 @@ import {
                          gap: 1rem; flex-wrap: wrap; }
     .traduccion .etq { font-size: .85rem; color: var(--muted); }
     .traduccion .rango { font-size: 1.35rem; font-variant-numeric: tabular-nums; color: var(--nado); }
+    .traduccion .rango.corre { color: var(--corre); }
+    .traduccion .rango.bici  { color: var(--bici); }
+    .traduccion .rango.nado  { color: var(--nado); }
     .traduccion p { margin: .3rem 0 .6rem; font-size: .8rem; line-height: 1.45; }
     .traduccion .linea + .linea { border-top: 1px solid var(--line); padding-top: .5rem; }
-    .traduccion .linea + .linea .rango { color: var(--corre); font-size: 1.1rem; }
+    .traduccion + p { margin-top: .5rem; }
 
     .propuesta { margin-top: .7rem; }
     .propuesta h2 { margin: 0 0 .2rem; }
@@ -327,8 +351,8 @@ export class MotorPage {
     return z.map(x => ({ min: x.min, max: x.max > 0 ? x.max : null }));
   });
 
-  readonly zonas = computed(() =>
-    analizarZonas(this.store.actividades(), this.zonasConfiguradas()));
+  readonly zonas = computed(() => analizarZonas(
+    this.store.actividades(), this.zonasConfiguradas(), this.strava.zonas()?.fcOrigen));
 
   readonly lthr = computed(() => estimarLTHR(this.store.actividades()));
 
@@ -356,6 +380,43 @@ export class MotorPage {
     const base = z[1];
     if (base.max === null) return null;
     return { min: base.min, max: base.max };
+  });
+
+  /**
+   * La Z2 traducida a cada disciplina.
+   *
+   * Las zonas de Strava son una sola tabla, pero el plan pide "Z2" en nado,
+   * bici y carrera, y a igual esfuerzo el pulso no es el mismo en las tres.
+   * Dar un unico rango para las tres es lo que hace que alguien nade a un
+   * ritmo absurdo o pedalee demasiado fuerte creyendo que va suave.
+   *
+   * Las zonas de Strava se leen como corriendo, que es la disciplina de
+   * referencia y donde el pulso es mas alto.
+   */
+  readonly z2PorDisciplina = computed(() => {
+    const base = this.zonaBase();
+    if (!base) return [];
+    const iconos = { corre: '🏃', bici: '🚴', nado: '🏊' } as const;
+    return (['corre', 'bici', 'nado'] as const).map(clave => ({
+      clave,
+      nombre: NOMBRE_DISCIPLINA[clave],
+      icono: iconos[clave],
+      ...rangoEnDisciplina(base.min, base.max, clave),
+    }));
+  });
+
+  /** Donde arranca la zona mas alta. Con zonas manuales, es lo comparable. */
+  readonly pisoZonaAlta = computed(() => {
+    const z = this.zonasConfiguradas();
+    return z?.length ? z[z.length - 1].min : null;
+  });
+
+  /** La zona de umbral tal como está puesta en Strava (la penúltima). */
+  readonly zonaUmbral = computed(() => {
+    const z = this.zonasConfiguradas();
+    if (!z || z.length < 2) return null;
+    const u = z[z.length - 2];
+    return u.max === null ? null : { min: u.min, max: u.max };
   });
 
   /** Las zonas de Strava con el tiempo que se paso en cada una. */

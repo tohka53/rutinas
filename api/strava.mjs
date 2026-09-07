@@ -219,6 +219,12 @@ async function traerZonas(token) {
     return {
       fc: z?.heart_rate?.zones ?? null,
       fcPersonalizadas: z?.heart_rate?.custom_zones ?? null,
+      // De dónde salieron las zonas. Es imprescindible: si son porcentajes del
+      // máximo se puede despejar qué máximo asumen, y si son manuales no —
+      // despejarlo igual devuelve un número inventado, y con él la app
+      // declararía mal calibrada una tabla puesta a mano que está bien.
+      fcOrigen: z?.heart_rate?.heart_rate_zone_source
+        ?? z?.heart_rate_zone_source ?? null,
       potencia: z?.power?.zones ?? null,
     };
   } catch { return null; }

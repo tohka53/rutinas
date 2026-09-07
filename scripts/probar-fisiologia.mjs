@@ -32,7 +32,8 @@ await rm(ENTRADA); await rm(SALIDA);
 const {
   vdotDe, estimarVO2max, analizarZonas, estimarLTHR, zonasRecomendadas,
   zonasDesde, maxImplicito, zonaDe, nivelVO2max, CORTES_MAX, CORTES_ZONAS,
-  BRECHA_TOLERADA, HISTORIAL_SEMILLA,
+  BRECHA_TOLERADA, derivadasDelMaximo, rangoEnDisciplina, NOMBRE_DISCIPLINA,
+  HISTORIAL_SEMILLA,
 } = m;
 
 let f = 0;
@@ -262,6 +263,96 @@ const act = (o) => ({
      `Z${zonaDe(136.5, puestas) + 1}`);
   ok('137 exacto ya es Z3', zonaDe(137, puestas) === 2, `Z${zonaDe(137, puestas) + 1}`);
   ok('sin zonas devuelve -1', zonaDe(150, []) === -1, String(zonaDe(150, [])));
+}
+
+// ======= 7c. zonas MANUALES: no se despeja un maximo que nadie configuro
+{
+  // Las que Miguel puso a mano el 7 sep, ancladas en el umbral.
+  const manuales = [
+    { min: 0, max: 139 }, { min: 140, max: 151 }, { min: 152, max: 159 },
+    { min: 160, max: 169 }, { min: 170, max: null },
+  ];
+  const hist = [
+    act({ f: '2026-08-23', m: 21538, s: 10645, fcm: 159.5, fcx: 171 }),
+    act({ f: '2026-08-12', d: 'fuerza', s: 3684, fcm: 155.5, fcx: 171 }),
+    act({ f: '2026-08-09', d: 'nado', m: 3500, s: 4609, fcm: 136.5, fcx: 156 }),
+  ];
+
+  // Despejar un maximo de una tabla manual da un numero inventado: 191.
+  ok('despejar un maximo de zonas manuales daria 191, que nadie puso',
+     cerca(maxImplicito(manuales), 191, 1.5), String(maxImplicito(manuales)));
+  ok('derivadasDelMaximo distingue el origen',
+     derivadasDelMaximo('MaxHeartRate') && !derivadasDelMaximo('Manual'),
+     `${derivadasDelMaximo('MaxHeartRate')} / ${derivadasDelMaximo('Manual')}`);
+  ok('sin origen se asume el de siempre, para no romper lo ya guardado',
+     derivadasDelMaximo(null) && derivadasDelMaximo(undefined));
+
+  const malo = analizarZonas(hist, manuales);                 // sin decir el origen
+  const bueno = analizarZonas(hist, manuales, 'Manual');      // diciendolo
+
+  ok('sin el origen, unas zonas manuales correctas se declaran mal calibradas',
+     malo.veredicto === 'desalineada' && malo.maxAsumido === 191,
+     `${malo.veredicto}, asumido ${malo.maxAsumido}`);
+  ok('con el origen, se declaran coherentes', bueno.veredicto === 'coherente',
+     bueno.veredicto);
+  ok('y no se inventa un maximo asumido', bueno.maxAsumido === null,
+     String(bueno.maxAsumido));
+
+  // Con zonas manuales la pregunta cambia: la zona mas alta, ¿se alcanza?
+  ok('la brecha pasa a medir si la zona alta es alcanzable',
+     bueno.brecha === 170 - 171, `${bueno.brecha} (piso 170, maximo 171)`);
+
+  const inalcanzable = analizarZonas(hist, [
+    { min: 0, max: 139 }, { min: 140, max: 151 }, { min: 152, max: 159 },
+    { min: 160, max: 184 }, { min: 185, max: null },
+  ], 'Manual');
+  ok('una zona alta que nunca se puede alcanzar si se marca',
+     inalcanzable.veredicto === 'desalineada', inalcanzable.veredicto);
+  ok('y lo explica sin hablar de maximos asumidos',
+     inalcanzable.advertencias.some(a => /no se puede alcanzar/.test(a)),
+     inalcanzable.advertencias.join(' | '));
+
+  // El origen 'MaxHeartRate' sigue funcionando como antes.
+  const porMax = analizarZonas(hist, [
+    { min: 0, max: 123 }, { min: 124, max: 153 }, { min: 154, max: 168 },
+    { min: 169, max: 183 }, { min: 184, max: null },
+  ], 'MaxHeartRate');
+  ok('con MaxHeartRate se sigue despejando el maximo',
+     porMax.maxAsumido === 192 && porMax.veredicto === 'desalineada',
+     `${porMax.maxAsumido}, ${porMax.veredicto}`);
+}
+
+// ============= 7d. la Z2 no es el mismo pulso en las tres disciplinas
+{
+  // El dato que lo justifica: su nado largo promedio 136.5 y su media maraton
+  // 159.5. Las dos aerobicas y sostenidas; 23 lpm de diferencia es disciplina.
+  const z2 = { min: 140, max: 151 };
+
+  const corre = rangoEnDisciplina(z2.min, z2.max, 'corre');
+  const bici = rangoEnDisciplina(z2.min, z2.max, 'bici');
+  const nado = rangoEnDisciplina(z2.min, z2.max, 'nado');
+
+  ok('corriendo es la referencia y no se desplaza',
+     corre.min === 140 && corre.max === 151, `${corre.min}-${corre.max}`);
+  ok('en bici el pulso baja', bici.max < corre.max, `${bici.min}-${bici.max}`);
+  ok('nadando baja mas todavia', nado.max < bici.max, `${nado.min}-${nado.max}`);
+  ok('el orden es nado < bici < corre en las tres',
+     nado.min < bici.min && bici.min < corre.min);
+  ok('el ancho de la banda no cambia al trasladarla',
+     nado.max - nado.min === corre.max - corre.min,
+     `${nado.max - nado.min} vs ${corre.max - corre.min}`);
+
+  // La prueba de realidad: su nado largo de 136.5 tiene que caer dentro de la
+  // Z2 de NADO. Con la tabla sin traducir caia en Z1 y parecia recuperacion.
+  ok('el nado largo de 136.5 cae dentro de la Z2 de nado',
+     136.5 >= nado.min && 136.5 <= nado.max, `${nado.min}-${nado.max}`);
+  ok('con la tabla sin traducir habria caido fuera',
+     136.5 < z2.min, `136.5 < ${z2.min}`);
+
+  ok('nunca devuelve pulsaciones negativas',
+     rangoEnDisciplina(3, 8, 'nado').min === 0, String(rangoEnDisciplina(3, 8, 'nado').min));
+  ok('los nombres estan completos',
+     !!(NOMBRE_DISCIPLINA.corre && NOMBRE_DISCIPLINA.bici && NOMBRE_DISCIPLINA.nado));
 }
 
 // ============================ 8. "sin dato" nunca se confunde con cero
