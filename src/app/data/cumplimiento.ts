@@ -11,6 +11,35 @@ export interface Actividad {
   desnivel?: number;
   calorias?: number | null;
   esfuerzo?: number | null;
+  // Todo lo de abajo llega con la sincronización de Strava y puede faltar: las
+  // actividades guardadas antes de la migración 0004 no lo traen, y una sesión
+  // sin banda, sin medidor o sin GPS tampoco. null significa "no se sabe" y
+  // nunca se promedia como cero.
+  /** Frecuencia cardíaca media, en lpm. */
+  fc_media?: number | null;
+  /** Frecuencia cardíaca máxima, en lpm. Calibra las zonas. */
+  fc_max?: number | null;
+  /** Brazadas/min nadando, pasos/min corriendo, rpm en bici. */
+  cadencia?: number | null;
+  vel_media?: number | null;
+  vel_max?: number | null;
+  watts_medios?: number | null;
+  watts_max?: number | null;
+  watts_ponderados?: number | null;
+  kilojoules?: number | null;
+  /** true = medidor real. false = estimado por Strava, no sirve para FTP. */
+  watts_de_medidor?: boolean | null;
+  /** Tiempo total. Contra `segundos` (en movimiento), la diferencia es descanso. */
+  segundos_totales?: number | null;
+  /** Rodillo o spinning según Strava. Más fiable que deducirlo de metros = 0. */
+  indoor?: boolean | null;
+  /** workout_type: corriendo, 1 = carrera, 2 = tirada larga, 3 = entreno. */
+  tipo_entreno?: number | null;
+  /** Fecha y hora local de inicio. */
+  inicio?: string | null;
+  equipo?: string | null;
+  prs?: number | null;
+  logros?: number | null;
 }
 
 /** Cómo se traduce cada sport_type de Strava a las disciplinas del plan. */

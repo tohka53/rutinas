@@ -7,6 +7,13 @@ import { ApiService } from './api.service';
  */
 export type EstadoStrava = 'desconocido' | 'sin-configurar' | 'desconectado' | 'conectado';
 
+/** Las zonas tal como las devuelve Strava: `max` viene en -1 en la última. */
+export interface ZonasStrava {
+  fc: { min: number; max: number }[] | null;
+  fcPersonalizadas: boolean | null;
+  potencia: { min: number; max: number }[] | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class StravaService {
   private api = inject(ApiService);
@@ -20,6 +27,11 @@ export class StravaService {
   readonly faltan = signal<string[]>([]);
   /** El dominio con el que responde el servidor: es el que pide Strava en el callback. */
   readonly dominio = signal<string>('');
+  /**
+   * Las zonas cardíacas y de potencia del perfil de Strava, tal como están
+   * configuradas allá. Se refrescan con cada sync. null = todavía no se sabe.
+   */
+  readonly zonas = signal<ZonasStrava | null>(null);
 
   private cabeceras(): HeadersInit {
     return { 'Content-Type': 'application/json', 'x-codigo': this.api.codigo() ?? '' };
@@ -44,6 +56,7 @@ export class StravaService {
       if (c.dominio) this.dominio.set(c.dominio);
       this.estado.set(c.conectado ? 'conectado' : c.configurado ? 'desconectado' : 'sin-configurar');
       this.ultimoSync.set(c.ultimoSync ?? null);
+      this.zonas.set(c.zonas ?? null);
     } catch {
       this.estado.set('desconocido');
     }
@@ -109,12 +122,34 @@ export class StravaService {
   }
 
   /** Trae lo nuevo de Strava. Devuelve cuántas actividades entraron, o null si falló. */
-  async sincronizar(): Promise<number | null> {
+  /**
+   * Cuánto historial pide una resincronización completa. Strava guarda todo,
+   * pero 13 meses cubre de sobra lo que este plan necesita comparar y no gasta
+   * el límite de peticiones en años que no se van a mirar.
+   */
+  static readonly DIAS_HISTORIAL = 400;
+
+  /**
+   * Vuelve a bajar todo el historial, no solo lo nuevo.
+   *
+   * Hace falta cada vez que se agrega un campo a `rutina_actividad`: el sync
+   * normal solo pide lo posterior al último, así que las filas viejas se
+   * quedarían para siempre sin frecuencia cardíaca, sin cadencia y sin
+   * potencia. Guardar es un upsert por `strava_id`, así que repetirlo no
+   * duplica nada — reescribe cada fila con todos los campos.
+   */
+  async resincronizarTodo(): Promise<number | null> {
+    const desde = Math.floor(Date.now() / 1000) - StravaService.DIAS_HISTORIAL * 86400;
+    return this.sincronizar(desde);
+  }
+
+  async sincronizar(desde?: number): Promise<number | null> {
     if (this.sincronizando()) return null;
     this.sincronizando.set(true);
     this.mensaje.set(null);
     try {
-      const r = await fetch('/api/strava?accion=sync', { headers: this.cabeceras() });
+      const url = desde ? `/api/strava?accion=sync&desde=${desde}` : '/api/strava?accion=sync';
+      const r = await fetch(url, { headers: this.cabeceras() });
       const c = await r.json().catch(() => ({}));
       if (r.status === 409) {
         this.estado.set(c.configurado === false ? 'sin-configurar' : 'desconectado');

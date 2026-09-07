@@ -1,6 +1,7 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { StorageService } from '../services/storage.service';
 import { PlanService } from '../services/plan.service';
+import { MotorPage } from './motor';
 import {
   porSemana, tendencia, serie, mmss, miles, etiquetaSemana,
   type SemanaRendimiento, type ClaveDisciplina,
@@ -61,6 +62,7 @@ const VISTAS: Vista[] = [
 
 @Component({
   selector: 'p-rendimiento',
+  imports: [MotorPage],
   template: `
     <h1>Rendimiento por semana</h1>
     <p class="muted">
@@ -76,6 +78,10 @@ const VISTAS: Vista[] = [
         </p>
       </div>
     } @else {
+
+      <p-motor />
+
+      <h2 class="sec">Cómo viene cada semana</h2>
 
       <!-- ------------------------------------------------ tarjetas por disciplina -->
       <div class="tarjetas">
@@ -145,7 +151,7 @@ const VISTAS: Vista[] = [
         </div>
 
         <div class="scroll-x">
-          <table class="rend">
+          <table class="rend semanal">
             <thead>
               <tr>
                 <th rowspan="2">Semana</th>
@@ -291,6 +297,9 @@ const VISTAS: Vista[] = [
     .pc { font-weight: 600; }
     .pc.ok { color: var(--ok); } .pc.warn { color: var(--warn); } .pc.bad { color: var(--bad); }
     .det { display: block; font-size: .7rem; }
+
+    h2.sec { margin: 1.1rem 0 .5rem; font-size: .78rem; text-transform: uppercase;
+             letter-spacing: .08em; color: var(--muted); }
   `],
 })
 export class RendimientoPage {

@@ -130,20 +130,98 @@ async function accessToken(db, clientId, clientSecret) {
   return t.access_token;
 }
 
+/**
+ * Devuelve el número solo si Strava mandó uno de verdad.
+ *
+ * La diferencia entre `null` y `0` no es cosmética acá: una sesión sin banda
+ * cardíaca tiene que quedar como "no se sabe". Si entra como 0, el promedio de
+ * la semana se hunde y el máximo observado —el número que calibra las zonas—
+ * se calcula sobre datos que nunca existieron.
+ */
+function num(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Todo lo que el listado de actividades de Strava trae y sirve para analizar.
+ *
+ * Viene todo en la misma respuesta, así que guardarlo no cuesta ni una petición
+ * extra — y cada campo que no se guarde hoy es una pregunta que no se va a
+ * poder responder mañana sobre el historial viejo.
+ */
 function aFila(a) {
   const disciplina = MAPA[a.sport_type ?? a.type] ?? 'otro';
+  const inicio = a.start_date_local ?? a.start_date ?? '';
   return {
     strava_id: a.id,
-    fecha: (a.start_date_local ?? a.start_date ?? '').slice(0, 10),
+    fecha: inicio.slice(0, 10),
     disciplina,
     sport_type: a.sport_type ?? a.type ?? null,
     nombre: a.name ?? null,
     metros: Math.round(a.distance ?? 0),
     segundos: Math.round(a.moving_time ?? 0),
     desnivel: Math.round(a.total_elevation_gain ?? 0),
-    calorias: a.calories ?? null,
-    esfuerzo: a.suffer_score ?? null,
+    calorias: num(a.calories),
+    esfuerzo: num(a.suffer_score),
+
+    // -------- frecuencia cardíaca: lo que calibra las zonas
+    fc_media: num(a.average_heartrate),
+    fc_max: num(a.max_heartrate),
+
+    // -------- técnica y ritmo
+    cadencia: num(a.average_cadence),
+    vel_media: num(a.average_speed),
+    vel_max: num(a.max_speed),
+
+    // -------- potencia. `device_watts` separa lo medido de lo estimado: un
+    // watt estimado no sirve para calcular FTP y hay que poder distinguirlo.
+    watts_medios: num(a.average_watts),
+    watts_max: num(a.max_watts),
+    watts_ponderados: num(a.weighted_average_watts),
+    kilojoules: num(a.kilojoules),
+    watts_de_medidor: typeof a.device_watts === 'boolean' ? a.device_watts : null,
+
+    // -------- contexto
+    segundos_totales: a.elapsed_time != null ? Math.round(a.elapsed_time) : null,
+    indoor: typeof a.trainer === 'boolean' ? a.trainer : null,
+    tipo_entreno: num(a.workout_type),
+    inicio: inicio || null,
+    equipo: a.gear_id ?? null,
+    prs: num(a.pr_count),
+    logros: num(a.achievement_count),
   };
+}
+
+/** Las zonas guardadas en config. JSON corrupto devuelve null, no rompe. */
+function parseZonas(txt) {
+  if (!txt) return null;
+  try {
+    const z = JSON.parse(txt);
+    return z && typeof z === 'object' ? z : null;
+  } catch { return null; }
+}
+
+/**
+ * Trae las zonas cardíacas y de potencia del perfil de Strava.
+ *
+ * Se llama dentro del sync y nunca sola: es una petición más contra el mismo
+ * límite de la API, y las zonas cambian una vez al año, no cada hora. Si falla
+ * devuelve null y el sync sigue — perder las zonas no puede costar las
+ * actividades.
+ */
+async function traerZonas(token) {
+  try {
+    const r = await fetch(`${STRAVA_API}/athlete/zones`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return null;
+    const z = await r.json();
+    return {
+      fc: z?.heart_rate?.zones ?? null,
+      fcPersonalizadas: z?.heart_rate?.custom_zones ?? null,
+      potencia: z?.power?.zones ?? null,
+    };
+  } catch { return null; }
 }
 
 function leerCuerpo(req) {
@@ -259,17 +337,22 @@ export default async function handler(req, res) {
 
     // --------------------------------------------------------------- estado
     if (accion === 'estado') {
-      const [{ clientId, clientSecret }, refresh, ultimo, atleta] = await Promise.all([
+      const [{ clientId, clientSecret }, refresh, ultimo, atleta, zonas] = await Promise.all([
         credenciales(db),
         db.config('strava_refresh_token'),
         db.config('strava_ultimo_sync'),
         db.config('strava_atleta'),
+        db.config('strava_zonas'),
       ]);
       return res.status(200).json({
         configurado: !!(clientId && clientSecret),
         conectado: !!(clientId && clientSecret && refresh),
         ultimoSync: ultimo || null,
         atleta: atleta || null,
+        // Las zonas se guardan como JSON en config al sincronizar. Si el JSON
+        // quedó corrupto se devuelve null en vez de romper el estado entero:
+        // sin zonas la app funciona, sin estado no.
+        zonas: parseZonas(zonas),
         // Para mostrar en la app el valor exacto que pide Strava en
         // "Authorization Callback Domain", sin que haya que adivinarlo.
         dominio: req.headers.host ?? '',
@@ -340,9 +423,15 @@ export default async function handler(req, res) {
 
       const guardadas = await db.guardarActividades(filas);
       const ahora = Math.floor(Date.now() / 1000);
+
+      // Las zonas viajan con el sync: son el otro lado de la FC que se acaba de
+      // guardar, y sin ellas no hay contra qué contrastarla.
+      const zonas = await traerZonas(token);
+
       await db.guardarConfig({
         strava_ultimo_sync: new Date().toISOString(),
         strava_ultimo_epoch: ahora,
+        ...(zonas ? { strava_zonas: JSON.stringify(zonas) } : {}),
       });
 
       const porDisciplina = filas.reduce((a, f) => ((a[f.disciplina] = (a[f.disciplina] ?? 0) + 1), a), {});

@@ -15,6 +15,16 @@ export interface FilaActividad {
   strava_id: number; fecha: string; disciplina: string; sport_type?: string | null;
   nombre?: string | null; metros: number; segundos: number;
   desnivel?: number; calorias?: number | null; esfuerzo?: number | null;
+  // Llegan con la migración 0004. Opcionales porque las filas viejas no las
+  // traen hasta que se resincronice el historial.
+  fc_media?: number | null; fc_max?: number | null;
+  cadencia?: number | null; vel_media?: number | null; vel_max?: number | null;
+  watts_medios?: number | null; watts_max?: number | null;
+  watts_ponderados?: number | null; kilojoules?: number | null;
+  watts_de_medidor?: boolean | null;
+  segundos_totales?: number | null; indoor?: boolean | null;
+  tipo_entreno?: number | null; inicio?: string | null; equipo?: string | null;
+  prs?: number | null; logros?: number | null;
 }
 
 export interface Remoto {
