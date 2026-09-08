@@ -2,6 +2,7 @@ import { Component, inject, signal, computed } from '@angular/core';
 import { StorageService } from '../services/storage.service';
 import { PlanService } from '../services/plan.service';
 import { MotorPage } from './motor';
+import { IntensidadPage } from './intensidad';
 import { ProgresoPage } from './progreso';
 import {
   porSemana, tendencia, serie, mmss, miles, etiquetaSemana,
@@ -63,7 +64,7 @@ const VISTAS: Vista[] = [
 
 @Component({
   selector: 'p-rendimiento',
-  imports: [MotorPage, ProgresoPage],
+  imports: [MotorPage, ProgresoPage, IntensidadPage],
   template: `
     <h1>Rendimiento por semana</h1>
     <p class="muted">
@@ -83,6 +84,8 @@ const VISTAS: Vista[] = [
       <p-motor />
 
       <p-progreso />
+
+      <p-intensidad />
 
       <h2 class="sec">Cómo viene cada semana</h2>
 
