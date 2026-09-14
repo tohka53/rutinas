@@ -59,14 +59,18 @@ export const SEMANA_BASE: DiaBase[] = [
     dow: 1, nombre: 'Lunes', tipoDia: 'medio',
     sesiones: [
       {
-        disciplina: 'nado', titulo: 'Natación — umbral corto', min: 45, zona: 'Z3',
+        disciplina: 'nado', titulo: 'Natación — fuerza y potencia', min: 45, zona: 'Z3-Z4',
         pasos: [
           '300 m suave: 100 crol / 100 patada con tabla / 100 crol',
-          '4 × 50 m técnica (punta de dedos, un brazo, puño cerrado, deslizamiento) — 15 s de descanso',
-          'Principal: 8 × 100 m a 2:25 / 100 m — 20 s de descanso',
+          '6 × 50 m progresivos — 15 s de descanso',
+          'Principal: 12 × 50 m a 1:05 (ritmo 2:10 / 100 m) — 15 s de descanso',
+          '8 × 25 m sprint desde parado — 20 s de descanso',
           '200 m suave',
         ],
-        nota: 'Cabe en 45 min. Si vas corto de tiempo, recortá el principal a 6 × 100, no el calentamiento.',
+        nota: 'La sesión que te baja el ritmo de 2:20 a 2:05 por cada 100 m. Va el lunes porque es el '
+            + 'día más fresco: al miércoles llegás con el spinning del martes encima. Cabe en 45 min '
+            + 'contando descansos; si vas corto, recortá el principal a 10 × 50 — los sprints del final '
+            + 'no se tocan, son lo que entrena la potencia.',
       },
       {
         disciplina: 'fuerza', titulo: 'CrossFit', min: 60, zona: 'mixto',
@@ -97,15 +101,16 @@ export const SEMANA_BASE: DiaBase[] = [
     dow: 3, nombre: 'Miércoles', tipoDia: 'medio',
     sesiones: [
       {
-        disciplina: 'nado', titulo: 'Natación — ritmo y velocidad', min: 45, zona: 'Z3-Z4',
+        disciplina: 'nado', titulo: 'Natación — aeróbico y técnica', min: 45, zona: 'Z2',
         pasos: [
-          '300 m suave',
-          '6 × 50 m progresivos — 15 s',
-          'Principal: 16 × 50 m a 1:05 (ritmo 2:10 / 100 m) — 15 s',
-          '8 × 25 m sprint — 20 s',
+          '300 m suave: 100 crol / 100 patada con tabla / 100 crol',
+          '6 × 50 m técnica (punta de dedos, un brazo, puño cerrado, deslizamiento) — 20 s de descanso',
+          'Principal: 3 × 250 m continuo en Z2 — 30 s de descanso. Contá brazadas por largo y sostené el número',
           '200 m suave',
         ],
-        nota: 'Esta sesión es la que te baja el ritmo de 2:20 a 2:05 por cada 100 m.',
+        nota: 'Suave a propósito. Llegás con el spinning del martes encima y te espera el segundo día '
+            + 'de piernas pesadas en el box: este nado sostiene el volumen semanal, no lo sube. La '
+            + 'velocidad ya la trabajaste el lunes.',
       },
       { disciplina: 'fuerza', titulo: 'CrossFit', min: 60, zona: 'mixto',
         pasos: ['Segundo día bueno para piernas pesadas'] },
