@@ -67,15 +67,44 @@ export class PlanService {
     return SEMANAS.map(s => aplicarAdaptacion(s, f));
   });
 
-  readonly semanaActual = computed<Semana>(() => {
-    const h = desdeIso(this.hoy());
-    const d = diasEntre(desdeIso(INICIO_PLAN), h);
-    const n = Math.floor(d / 7) + 1;
-    const ss = this.semanas();
-    if (n < 1) return ss[0];
-    if (n > ss.length) return ss[ss.length - 1];
-    return ss[n - 1];
+  /**
+   * Índice (0-based) de la semana de hoy dentro de `semanas()`.
+   *
+   * Se topa a los extremos en vez de devolver algo fuera de rango: antes del
+   * 7 sep se mira la semana 1, y después del 31 oct de 2027 la última. Es
+   * preferible a una pantalla vacía cuando el plan todavía no arrancó o ya
+   * terminó.
+   */
+  readonly indiceSemana = computed<number>(() => {
+    const d = diasEntre(desdeIso(INICIO_PLAN), desdeIso(this.hoy()));
+    const n = Math.floor(d / 7);
+    return Math.min(Math.max(n, 0), this.semanas().length - 1);
   });
+
+  readonly semanaActual = computed<Semana>(() => this.semanas()[this.indiceSemana()]);
+
+  /**
+   * La semana siguiente, o null si la actual es la última del macrociclo.
+   *
+   * null y no "la misma otra vez": la última semana del plan no tiene próxima,
+   * y devolver un duplicado haría que la pantalla muestre la de hoy creyendo
+   * que mira hacia adelante.
+   */
+  readonly semanaProxima = computed<Semana | null>(() => {
+    const ss = this.semanas();
+    const i = this.indiceSemana() + 1;
+    return i < ss.length ? ss[i] : null;
+  });
+
+  /** Las siete fechas de una semana cualquiera, de lunes a domingo. */
+  fechasDe(s: Semana): string[] {
+    const ini = desdeIso(s.inicio);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(ini);
+      d.setDate(ini.getDate() + i);
+      return iso(d);
+    });
+  }
 
   /** true cuando la fecha de hoy cae antes de que arranque el plan. */
   readonly antesDelPlan = computed(() => diasEntre(desdeIso(INICIO_PLAN), desdeIso(this.hoy())) < 0);
@@ -93,14 +122,7 @@ export class PlanService {
   readonly menuHoy = computed(() => MENUS[this.diaBaseHoy().tipoDia]);
 
   /** Fechas de cada día de la semana actual, de lunes a domingo. */
-  readonly fechasSemana = computed<string[]>(() => {
-    const ini = desdeIso(this.semanaActual().inicio);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(ini);
-      d.setDate(ini.getDate() + i);
-      return iso(d);
-    });
-  });
+  readonly fechasSemana = computed<string[]>(() => this.fechasDe(this.semanaActual()));
 
   readonly carrerasOrdenadas = computed<(Carrera & { faltan: number })[]>(() => {
     const h = desdeIso(this.hoy());

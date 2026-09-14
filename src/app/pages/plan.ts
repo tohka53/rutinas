@@ -2,6 +2,7 @@ import { Component, inject, computed } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { BLOQUES } from '../data/plan.data';
 import { PlanService, fechaCorta } from '../services/plan.service';
+import { StravaService } from '../services/strava.service';
 import { RITMOS, ZONAS_FC } from '../data/sesiones.data';
 import { DECISION_SEMANA_9 } from '../data/carreras.data';
 
@@ -94,12 +95,19 @@ import { DECISION_SEMANA_9 } from '../data/carreras.data';
 
       <div class="card">
         <h2>Tus zonas de frecuencia cardíaca</h2>
-        <p class="dim">Las que ya tenés configuradas en Strava.</p>
+        @if (zonasVivas().length) {
+          <p class="dim">Leídas de tu perfil de Strava, no escritas a mano.</p>
+        } @else {
+          <p class="dim">
+            No se pudieron leer de Strava, así que estas son las de referencia del plan.
+            Mirá la pestaña <strong>Rendimiento</strong>: ahí dice por qué y cómo arreglarlo.
+          </p>
+        }
         <div class="scroll-x">
           <table>
             <thead><tr><th>Zona</th><th>Rango</th><th>Para qué</th></tr></thead>
             <tbody>
-              @for (z of zonas; track z.z) {
+              @for (z of zonasMostradas(); track z.z) {
                 <tr>
                   <td><strong>{{ z.z }}</strong><br><span class="dim">{{ z.nombre }}</span></td>
                   <td class="mono">{{ z.rango }}</td>
@@ -108,6 +116,12 @@ import { DECISION_SEMANA_9 } from '../data/carreras.data';
               }
             </tbody>
           </table>
+        </div>
+        <div class="nota">
+          Estos números son <strong>corriendo</strong>. A igual esfuerzo el pulso baja
+          ~7 lpm en bici y ~12 nadando: tu nado largo de 3,500 m promedió 136 y tu media
+          maratón 159, y las dos fueron aeróbicas. El desglose por disciplina está en
+          <strong>Rendimiento</strong>.
         </div>
         <div class="nota">
           El error clásico del principiante es entrenar todo en Z3: demasiado fuerte para acumular base,
@@ -134,7 +148,36 @@ export class PlanPage {
   semanas = this.p.semanas;      // ya ajustadas por lo que entrenó
   bloques = BLOQUES;
   ritmos = RITMOS;
-  zonas = ZONAS_FC;
+  /**
+   * Las zonas de Strava, si se pueden leer; si no, las de referencia del plan.
+   *
+   * La tabla decia "las que ya tenes configuradas en Strava" y mostraba una
+   * constante escrita a mano meses atras. Cuando Miguel corrigio su maximo el
+   * 7 sep, esta pantalla siguio mostrando las viejas —Z2 en 124-153 cuando su
+   * Z2 real es 140-151— y afirmando que venian de Strava. Un numero escrito a
+   * mano no envejece solo: envejece en silencio y sigue sonando autorizado.
+   */
+  private strava = inject(StravaService);
+
+  readonly zonasVivas = computed(() => {
+    const z = this.strava.zonas()?.fc;
+    if (!z?.length) return [];
+    return z.map((x, i) => ({
+      z: ZONAS_FC[i]?.z ?? `Z${i + 1}`,
+      nombre: ZONAS_FC[i]?.nombre ?? '',
+      rango: x.max > 0 ? `${x.min} – ${x.max} ppm` : `> ${x.min - 1} ppm`,
+      uso: ZONAS_FC[i]?.uso ?? '',
+    }));
+  });
+
+  readonly zonasMostradas = computed(() =>
+    this.zonasVivas().length ? this.zonasVivas() : ZONAS_FC);
+
+  constructor() {
+    // Las zonas llegan con el estado de Strava. Sin pedirlo, esta pantalla se
+    // quedaria siempre con la constante.
+    if (!this.strava.zonas()) void this.strava.consultarEstado();
+  }
   dec = DECISION_SEMANA_9;
   fechaCorta = fechaCorta;
   actual = computed(() => this.p.semanaActual());

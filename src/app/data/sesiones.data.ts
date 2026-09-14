@@ -17,12 +17,24 @@ export interface DiaBase {
 }
 
 /** Zonas de FC tomadas del perfil real de Strava de Miguel (fuente: MaxHeartRate). */
+/**
+ * Zonas de referencia, SOLO como respaldo si no se pueden leer las de Strava.
+ *
+ * Las de verdad se leen del perfil y se muestran en Plan y en Rendimiento. Esta
+ * constante existia antes con los valores de septiembre (Z2 en 124-153) y
+ * siguio mostrandose como "las que tenes en Strava" despues de que Miguel
+ * corrigiera su maximo, cuando su Z2 real paso a 140-151. Un numero escrito a
+ * mano no envejece solo: envejece en silencio y sigue sonando autorizado.
+ *
+ * Los rangos son CORRIENDO. Nadando el pulso baja ~12 lpm a igual esfuerzo y en
+ * bici ~7: el desglose por disciplina lo calcula `fisiologia.ts`.
+ */
 export const ZONAS_FC = [
-  { z: 'Z1', nombre: 'Recuperación', rango: '< 123 ppm', uso: 'Calentamiento, vuelta a la calma' },
-  { z: 'Z2', nombre: 'Aeróbico',     rango: '124 – 153 ppm', uso: 'Base. Aquí vive el 75 % del plan' },
-  { z: 'Z3', nombre: 'Tempo',        rango: '154 – 168 ppm', uso: 'Ritmo de 70.3 en bici' },
-  { z: 'Z4', nombre: 'Umbral',       rango: '169 – 183 ppm', uso: 'Intervalos de spinning' },
-  { z: 'Z5', nombre: 'VO2 máx',      rango: '> 184 ppm', uso: 'Series cortas, poco volumen' },
+  { z: 'Z1', nombre: 'Recuperación', rango: '< 140 ppm', uso: 'Calentamiento, vuelta a la calma' },
+  { z: 'Z2', nombre: 'Aeróbico',     rango: '140 – 151 ppm', uso: 'Base. Aquí vive el 75 % del plan' },
+  { z: 'Z3', nombre: 'Tempo',        rango: '152 – 159 ppm', uso: 'Ritmo de 70.3 en bici' },
+  { z: 'Z4', nombre: 'Umbral',       rango: '160 – 169 ppm', uso: 'Intervalos de spinning' },
+  { z: 'Z5', nombre: 'VO2 máx',      rango: '> 169 ppm', uso: 'Series cortas, poco volumen' },
 ];
 
 /** Ritmos de referencia derivados de las actividades reales de Strava. */
@@ -72,7 +84,7 @@ export const SEMANA_BASE: DiaBase[] = [
         disciplina: 'bici', titulo: 'Spinning — intervalos de umbral', min: 60, zona: 'Z4',
         pasos: [
           '15 min de calentamiento progresivo hasta Z2',
-          'Principal: 4 × 8 min en Z4 (169–183 ppm) con 3 min suaves — cadencia 85–95 rpm',
+          'Principal: 4 × 8 min en Z4 con 3 min suaves — cadencia 85–95 rpm',
           '5 min de vuelta a la calma',
         ],
         nota: 'Ignorá la coreografía de la clase. Seguí tu pulsómetro: el instructor no sabe tus zonas.',
@@ -131,8 +143,8 @@ export const SEMANA_BASE: DiaBase[] = [
       {
         disciplina: 'corre', titulo: 'Trote suave', min: 35, zona: 'Z2',
         pasos: [
-          '35 min en Z2 (124–153 ppm), conversando sin ahogarte',
-          'Si el pulso se te va sobre 153, caminá 1 min y seguí',
+          '35 min en Z2, conversando sin ahogarte',
+          'Si no podés decir una frase entera, caminá 1 min y seguí',
         ],
         nota: 'Este trote existe para darte una tercera sesión de carrera por semana. Antes solo corrías los domingos.',
       },
@@ -159,7 +171,7 @@ export const SEMANA_BASE: DiaBase[] = [
       {
         disciplina: 'bici', titulo: 'Bici larga en ruta', min: 150, zona: 'Z2',
         pasos: [
-          'Todo en Z2 (124–153 ppm). Si vas hablando, vas bien',
+          'Todo en Z2. Si vas hablando, vas bien',
           'Comé 60–80 g de carbohidrato por hora desde la primera hora, no cuando ya tengas hambre',
           'Tomá 500–750 ml de líquido por hora',
           'Últimos 15–20 min a ritmo de carrera',

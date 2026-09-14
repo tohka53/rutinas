@@ -141,6 +141,7 @@ export class App {
   links = [
     { path: '', label: 'Hoy' },
     { path: 'semana', label: 'Semana' },
+    { path: 'proxima', label: 'Próxima' },
     { path: 'cumplimiento', label: 'Cumplimiento' },
     { path: 'rendimiento', label: 'Rendimiento' },
     { path: 'plan', label: 'Plan 60 sem' },
